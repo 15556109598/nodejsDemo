@@ -1,0 +1,156 @@
+// ============================================
+// 全局基础样式：reset / 通用类 / 动画 / 路由过渡
+// ============================================
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Segoe UI, Arial, Roboto,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft Yahei', sans-serif;
+  font-size: 14px;
+  color: $text-primary;
+  background-color: $bg-page;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  min-height: 100%;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+// 通用按压反馈
+.press {
+  transition: transform 150ms ease;
+  cursor: pointer;
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+// 通用卡片
+.card {
+  background: $bg-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+// 通用价格（橙色粗体）
+.price-text {
+  color: $primary;
+  font-weight: $font-bold;
+}
+
+// 提示文字（13px #999）
+.hint-text {
+  font-size: $font-sm;
+  color: $text-hint;
+}
+
+// 渐变头部通用
+.gradient-header {
+  background: $primary-gradient;
+}
+
+// 安全区：底部
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+// ---------------- 动画 ----------------
+
+// 卡片入场
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// 购物车角标弹跳
+@keyframes bounce {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.4);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+// 制作中标签 / 今日光晕脉动
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.06);
+  }
+}
+
+// 购物车图标抖动（加购时）
+@keyframes cart-shake {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-10deg);
+  }
+  75% {
+    transform: rotate(10deg);
+  }
+}
+
+// ---------------- 页面路由过渡 ----------------
+
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 300ms ease-in-out, transform 300ms ease-in-out;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}

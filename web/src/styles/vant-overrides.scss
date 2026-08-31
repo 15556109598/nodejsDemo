@@ -1,0 +1,54 @@
+// ============================================
+// Vant 组件样式覆盖（需在 vant/lib/index.css 之后引入）
+// ============================================
+
+:root {
+  // 品牌色
+  --van-primary-color: #FF6B35;
+  --van-danger-color: #EE0A24;
+  --van-blue: #1989FA;
+  --van-radius-md: 12px;
+
+  // 底部标签栏
+  --van-tabbar-item-active-color: #FF6B35;
+  --van-tabbar-item-text-color: #999999;
+
+  // 导航栏：白字（渐变背景由页面容器提供）
+  --van-nav-bar-title-text-color: #fff;
+  --van-nav-bar-text-color: #fff;
+  --van-nav-bar-icon-color: #fff;
+  --van-nav-bar-background: transparent;
+
+  // 搜索框
+  --van-search-background: transparent;
+  --van-search-content-background: #ffffff;
+
+  // 步进器
+  --van-stepper-button-round-theme-color: #FF6B35;
+
+  // 标签
+  --van-tag-primary-color: #FF6B35;
+}
+
+// 主按钮：品牌渐变、去边框
+.van-button--primary {
+  background: linear-gradient(135deg, #FF6B35, #FF8F5E);
+  border: none;
+  color: #fff;
+}
+
+// tabs 下划线：品牌渐变
+.van-tabs__line {
+  background: linear-gradient(135deg, #FF6B35, #FF8F5E);
+  border-radius: 9999px;
+}
+
+// 下拉刷新加载文案颜色
+.van-loading__text {
+  color: #999999;
+}
+
+// 空状态描述
+.van-empty__description {
+  color: #999999;
+}
