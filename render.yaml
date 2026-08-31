@@ -1,0 +1,29 @@
+# Render Blueprint 配置文件
+# 文档：https://render.com/docs/blueprint-spec
+# 使用：在 Render Dashboard -> New -> Blueprint -> 选择本仓库，会自动读取本文件
+
+services:
+  - type: web
+    name: xiaochu-order-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # 指定 Node 版本（建议 20 LTS）
+      - key: NODE_VERSION
+        value: 20.11.0
+      # 以下三项为敏感信息，sync: false 表示不在此文件中明文存储
+      # 部署时需在 Render Dashboard 手动填入真实值
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # CORS 允许的前端域名，部署前端后填入 Vercel 地址
+      - key: CORS_ORIGIN
+        sync: false
