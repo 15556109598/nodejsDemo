@@ -18,7 +18,7 @@ const app=express()
 app.use(express.static(path.join(__dirname, 'image')));
 
 //get接口的开发
-app.get('/api/list',(err,res)=>{
+app.get('/api/list',(req,res)=>{
     res.send({
         code:200,
         data:[{name:1},{name:2},{name:3}]
@@ -32,6 +32,7 @@ app.post('/api/setList',(req,res)=>{
     res.send({newList})
 })
 
-app.listen(9588,()=>{
-    console.log('服务器启动成功');
+const port = process.env.PORT || 9588
+app.listen(port, () => {
+    console.log(`服务器启动成功，端口：${port}`);
 })
