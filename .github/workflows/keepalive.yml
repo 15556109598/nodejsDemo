@@ -1,0 +1,22 @@
+name: 定时探活
+
+# 作用：
+# 1. 定期请求后端探活接口，触发一次真实的 Supabase 查询，防止免费版项目因 7 天无活动被自动暂停
+# 2. 频率高于 Render 免费实例的 15 分钟休眠阈值，使后端保持热启动，用户访问无需等待冷启动
+on:
+  schedule:
+    # 每 10 分钟一次（cron 使用 UTC 时区，本表达式与具体时区无关）
+    # 注意：GitHub 定时任务在高负载时段可能延迟几分钟，属正常现象
+    - cron: '*/10 * * * *'
+  # 支持在 Actions 页面手动触发，便于随时验证
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 请求后端探活接口
+        run: |
+          curl -fsS --max-time 120 --retry 2 --retry-delay 10 --retry-all-errors \
+            https://xiaochu-order-server.onrender.com/api/keepalive

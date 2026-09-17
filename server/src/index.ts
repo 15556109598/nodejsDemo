@@ -3,6 +3,7 @@ import './polyfill'; // 必须最先导入：Node16 fetch polyfill
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { env } from './env';
+import { adminClient } from './lib/supabase';
 import { ok, fail } from './utils/resp';
 import authRoutes from './routes/auth';
 import menuRoutes from './routes/menu';
@@ -24,6 +25,17 @@ app.use(express.json({ limit: '1mb' }));
 // 健康检查（不依赖数据库）
 app.get('/api/health', (_req: Request, res: Response) => {
   ok(res, 'ok');
+});
+
+// 探活接口：供定时任务调用，执行一次真实的数据库查询，
+// 避免 Supabase 免费版因 7 天无活动被自动暂停
+app.get('/api/keepalive', async (_req: Request, res: Response): Promise<void> => {
+  const { error } = await adminClient.from('categories').select('id', { count: 'exact', head: true });
+  if (error) {
+    fail(res, 500, error.message);
+    return;
+  }
+  ok(res, 'alive');
 });
 
 // 业务路由
