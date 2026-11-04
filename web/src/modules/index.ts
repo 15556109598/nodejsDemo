@@ -53,4 +53,14 @@ export const APP_MODULES: AppModule[] = [
     badge: '新增',
     accent: '#F7EDD8',
   },
+  {
+    id: 'couple',
+    name: '我们的空间',
+    description: '纪念日、每日一句、天气与经期记录',
+    icon: '💗',
+    path: '/couple',
+    status: 'available',
+    badge: '新增',
+    accent: '#FBE9E5',
+  },
 ]

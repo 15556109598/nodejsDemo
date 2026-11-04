@@ -178,7 +178,7 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 
 1. 推送到 GitHub 仓库（本仓库已有 `origin`）。
 2. Render Dashboard → **New → Blueprint** → 选择本仓库（会自动读取根目录 [render.yaml](render.yaml)：`rootDir: .`，构建前端 + 后端，启动 `node server/dist/index.js`）。
-3. 在服务 Environment 中手动填入：`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`（点餐系统需要前两项，零食模块需要后两项）。
+3. 在服务 Environment 中手动填入：`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`（点餐系统需要前两项，零食模块与情侣空间需要后两项）；情侣空间另建议配置 `COUPLE_PASSCODE`（见第九节）。
 4. 部署完成后访问 `https://<服务名>.onrender.com`：`/` 为模块导航，`/app` 为点餐，`/snacks` 为零食模块；`/api/health` 应返回 `{"code":0,"data":"ok"}`。
 
 数据持久化注意：
@@ -191,4 +191,47 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 
 - 前端静态站点（Vercel / Render Static Site）+ 后端 Web Service：前端构建时设置 `VITE_API_BASE=https://<后端域名>/api`，后端 `CORS_ORIGIN` 填前端域名；图片为 Supabase Storage 绝对地址，跨域无影响。
 - 仅本地运行：`server` 下 `npm run build && npm start`（先 `web` 下 `npm run build`，由后端托管页面），浏览器打开 `http://localhost:3000`。
+
+## 九、情侣空间模块（`/couple`）
+
+- 页面：`/couple`（入口页第三张卡片「我们的空间」），含纪念日、每日一句、天气、经期记录与预测、提醒、今日摘要、设置。
+- 数据：Supabase Postgres 四张表 `couple_anniversaries` / `couple_cycle_records` / `couple_quotes` / `couple_settings`，均开启 RLS 且无匿名策略，仅服务端 service_role 可读写。
+- 隐私门：设置 `COUPLE_PASSCODE` 后，前端输入口令 → 服务端校验 → 下发 90 天有效的 httpOnly cookie（HMAC 值，不含明文口令）；除 `/session`、`/auth`、`/daily` 外的接口都校验该 cookie。未设置口令时模块公开可见，页面顶部有醒目警示。
+- 天气：Open-Meteo（免密钥），默认南京 · 雨花台 **31.9957, 118.7635**；接口失败时返回降级提示，不影响页面其他内容。坐标可在页面「设置」里修改。
+- 经期预测：至少 3 次记录（2 个周期间隔）才给出预测，否则提示「样本不足」；结果仅供参考，不构成医疗建议。
+
+### 9.1 迁移与配置（必须执行一次）
+
+1. Supabase Dashboard → **SQL Editor** → 粘贴 [server/sql/couple.sql](server/sql/couple.sql) → Run。脚本可重复执行。
+2. `server/.env` / Render Environment 新增：
+
+| 变量 | 必填 | 说明 |
+|---|---|---|
+| `COUPLE_PASSCODE` | 建议必填 | 访问口令；不填则模块公开可见（页面有警示） |
+| `COUPLE_FEISHU_WEBHOOK` | 可选 | 飞书群机器人 webhook，用于每日摘要推送；不填时推送自动跳过 |
+| `COUPLE_CRON_SECRET` | 可选 | `/api/couple/daily` 的 `x-cron-secret`；不填时该接口返回 503（定时工作流会跳过） |
+| `COUPLE_CITY` / `COUPLE_LATITUDE` / `COUPLE_LONGITUDE` | 可选 | 默认城市与坐标，默认 `南京 · 雨花台` / `31.9957` / `118.7635` |
+
+未执行 SQL 时：`/api/couple/overview` 返回 `503 数据表尚未创建，请先在 Supabase SQL Editor 执行 server/sql/couple.sql`，页面显示错误态与「重新加载」按钮；其他模块不受影响。
+
+### 9.2 接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/couple/auth` | 校验口令，下发 httpOnly cookie（90 天） |
+| GET | `/api/couple/session` | `{ passcodeSet, unlocked }` |
+| POST | `/api/couple/lock` | 清除 cookie |
+| GET | `/api/couple/overview` | 纪念日 + 每日一句 + 天气 + 经期统计/预测 + 提醒 + 今日摘要 + 设置 |
+| GET | `/api/couple/weather` | 单独刷新天气（失败时 `available:false`，HTTP 仍为 200） |
+| POST / PUT / DELETE | `/api/couple/anniversaries[/:id]` | 纪念日新增/编辑/删除 |
+| POST / PUT / DELETE | `/api/couple/cycles[/:id]` | 经期记录新增/编辑/删除 |
+| POST / DELETE | `/api/couple/quotes[/:id]` | 自定义句子新增/删除 |
+| PUT | `/api/couple/settings` | 保存城市/坐标/提醒阈值 |
+| POST | `/api/couple/daily` | 定时推送，需请求头 `x-cron-secret`；未配 webhook 时返回 `sent:false` |
+
+### 9.3 每日推送（可选）
+
+- GitHub Actions 工作流 [.github/workflows/couple-daily.yml](.github/workflows/couple-daily.yml) 每天北京时间 07:00 调用 `POST /api/couple/daily`。
+- 仓库 Secrets 配置 `COUPLE_CRON_SECRET`（必填，未配置时工作流跳过且不报失败）、`API_BASE`（可选，默认 `https://xiaochu-order-server.onrender.com`）。
+- Render 免费实例会在无请求约 15 分钟后休眠：定时任务可能遇到冷启动（工作流已设置 180 秒超时与重试）；如果恰好休眠且冷启动失败，该次推送会失败，可手动在 Actions 页重跑。
 

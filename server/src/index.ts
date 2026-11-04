@@ -13,6 +13,7 @@ import orderRoutes from './routes/orders';
 import signinRoutes from './routes/signins';
 import pointsRoutes from './routes/points';
 import snackRoutes from './routes/snacks';
+import coupleRoutes from './routes/couple';
 
 const app = express();
 
@@ -20,7 +21,8 @@ const app = express();
 app.use(
   cors({
     origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(','),
-    credentials: false,
+    // 情侣空间口令使用 httpOnly cookie，跨域开发时需要携带凭证
+    credentials: true,
   })
 );
 app.use(express.json({ limit: '1mb' }));
@@ -48,6 +50,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/signin', signinRoutes);
 app.use('/api/points', pointsRoutes);
 app.use('/api/snacks', snackRoutes);
+app.use('/api/couple', coupleRoutes);
 
 // 前端打包产物（web/dist）：存在则由本服务统一托管，单服务部署时无需再配 CORS
 const WEB_DIST = path.resolve(__dirname, '../../web/dist');
@@ -77,7 +80,8 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   // 迁移未执行：给出可操作的提示，避免只看到 500
   if (err?.code === '42P01' || err?.code === 'PGRST205' || /Could not find the table/i.test(err?.message || '')) {
     console.error('[server error]', err);
-    fail(res, 503, '数据表尚未创建，请先在 Supabase SQL Editor 执行 server/sql/snacks.sql');
+    const sqlFile = err?.sqlFile === 'server/sql/couple.sql' ? 'server/sql/couple.sql' : 'server/sql/snacks.sql';
+    fail(res, 503, `数据表尚未创建，请先在 Supabase SQL Editor 执行 ${sqlFile}`);
     return;
   }
   console.error('[server error]', err);

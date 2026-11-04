@@ -1,0 +1,47 @@
+name: 情侣空间每日摘要
+
+# 作用：每天北京时间 07:00 调用受保护的 /api/couple/daily，由服务端组装今日摘要并推送飞书。
+# 未配置 COUPLE_CRON_SECRET 时本工作流自动跳过（exit 0，不报失败）。
+# 未配置 COUPLE_FEISHU_WEBHOOK 时接口返回 sent:false，同样不算失败。
+#
+# 需要在仓库 Settings → Secrets and variables → Actions 配置：
+#   COUPLE_CRON_SECRET  与服务端同名环境变量一致（必填，否则跳过）
+#   API_BASE            可选，默认 https://xiaochu-order-server.onrender.com
+on:
+  schedule:
+    # cron 使用 UTC；23:00 UTC = 北京时间次日 07:00
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 触发每日摘要（未配置密钥时跳过）
+        env:
+          COUPLE_CRON_SECRET: ${{ secrets.COUPLE_CRON_SECRET }}
+          API_BASE: ${{ secrets.API_BASE }}
+        run: |
+          set -u
+          if [ -z "${COUPLE_CRON_SECRET:-}" ]; then
+            echo "::notice::未配置 COUPLE_CRON_SECRET，跳过每日摘要"
+            exit 0
+          fi
+
+          BASE="${API_BASE:-https://xiaochu-order-server.onrender.com}"
+          BASE="${BASE%/}"
+
+          # Render 免费实例休眠后首次请求需要冷启动，给足超时并重试
+          code=$(curl -sS -o /tmp/couple-daily.json -w '%{http_code}' \
+            --max-time 180 --retry 2 --retry-delay 15 --retry-all-errors \
+            -X POST "$BASE/api/couple/daily" \
+            -H "x-cron-secret: $COUPLE_CRON_SECRET")
+
+          cat /tmp/couple-daily.json || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::error::每日摘要接口返回 HTTP $code"
+            exit 1
+          fi
+          echo "每日摘要已触发"

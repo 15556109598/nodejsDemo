@@ -3,8 +3,9 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
-// 无需登录即可访问的路径（模块入口页、零食模块、登录页）
-const PUBLIC_PATHS = ['/', '/snacks', '/login']
+// 无需登录即可访问的路径（模块入口页、零食模块、情侣空间、登录页）
+// 说明：情侣空间另有自己的口令门（服务端 cookie），不依赖点餐登录态
+const PUBLIC_PATHS = ['/', '/snacks', '/couple', '/login']
 
 const routes: RouteRecordRaw[] = [
   {
@@ -22,6 +23,11 @@ const routes: RouteRecordRaw[] = [
     path: '/snacks',
     name: 'snacks',
     component: () => import('@/views/snacks/Index.vue'),
+  },
+  {
+    path: '/couple',
+    name: 'couple',
+    component: () => import('@/views/couple/Index.vue'),
   },
   {
     path: '/order',
