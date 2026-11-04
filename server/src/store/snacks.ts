@@ -170,7 +170,12 @@ export async function removeSnack(id: string): Promise<SnackItem | null> {
   const item = mapRow(data as SnackRow);
   if (item.photoUrl) {
     const path = storagePathFromUrl(item.photoUrl);
-    if (path) {
+    // 同一张图可能被多条记录引用，确认无人再引用后才删除对象
+    const { count } = await adminClient
+      .from(TABLE)
+      .select('id', { count: 'exact', head: true })
+      .eq('photo_url', item.photoUrl);
+    if (path && (count ?? 0) === 0) {
       const { error: storageError } = await adminClient.storage.from(BUCKET).remove([path]);
       if (storageError) console.warn('[snacks] 删除图片失败:', storageError.message);
     }
