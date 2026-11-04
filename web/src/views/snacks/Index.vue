@@ -427,7 +427,8 @@ async function saveSettings() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 52px;
+  // 高度随安全区自动增高：固定高度 + padding-top 会把标题挤出头部，被下方提示条遮住
+  min-height: 52px;
   padding: 0 16px;
   padding-top: env(safe-area-inset-top);
   background: linear-gradient(135deg, #ff6b35 0%, #ff9f43 100%);
