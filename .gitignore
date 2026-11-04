@@ -60,3 +60,7 @@ coverage/
 # ===== 零食模块运行时数据（不要提交）=====
 server/data/
 server/uploads/
+
+# ===== 本地质检 / 截图产物（不要提交）=====
+.tmp-audit/
+.tmp-shots/

@@ -51,19 +51,19 @@ const photoSrc = computed(() => resolveUploadUrl(props.item.photoUrl))
   <article class="snack-card" :class="status">
     <div class="card-main">
       <div class="thumb">
-        <img v-if="photoSrc" :src="photoSrc" alt="零食照片" loading="lazy" />
-        <span v-else class="thumb-placeholder">🍪</span>
+        <img v-if="photoSrc" :src="photoSrc" :alt="`${item.name} 的照片`" loading="lazy" />
+        <span v-else class="thumb-placeholder" aria-hidden="true">🍪</span>
       </div>
 
       <div class="info">
         <div class="title-row">
-          <h3 class="name">{{ item.name }}</h3>
+          <h2 class="name">{{ item.name }}</h2>
           <span class="qty">×{{ item.quantity }}</span>
         </div>
         <p v-if="item.brand" class="brand">{{ item.brand }}</p>
         <p class="expire">到期日 {{ item.expireDate }}</p>
         <p class="countdown">
-          <span class="dot" />
+          <span class="dot" aria-hidden="true" />
           {{ countdownText }}
         </p>
         <p v-if="item.note" class="note">{{ item.note }}</p>
@@ -73,53 +73,55 @@ const photoSrc = computed(() => resolveUploadUrl(props.item.photoUrl))
     </div>
 
     <div class="card-actions">
-      <button class="action" @click="emit('edit', item)">编辑</button>
-      <button class="action" @click="emit('toggle-finish', item)">
+      <button type="button" class="action" @click="emit('edit', item)">编辑</button>
+      <button type="button" class="action" @click="emit('toggle-finish', item)">
         {{ item.finished ? '取消归档' : '已吃完' }}
       </button>
-      <button class="action danger" @click="emit('remove', item)">删除</button>
+      <button type="button" class="action danger" @click="emit('remove', item)">删除</button>
     </div>
   </article>
 </template>
 
 <style scoped lang="scss">
+// 与入口页一致：本组件使用大写 PX，避免桌面端被 px→vw 放大
 .snack-card {
   position: relative;
-  padding: 12px;
-  background: $bg-card;
-  border-radius: $radius-md;
-  box-shadow: $shadow-card;
-  border-left: 4px solid transparent;
+  padding: 14PX;
+  background: $surface;
+  border: 1PX solid $line;
+  border-left: 3PX solid $line;
+  border-radius: 12PX;
+  box-shadow: 0 1PX 2PX rgba(36, 31, 27, 0.04);
 
   &.normal {
-    border-left-color: $success;
+    border-left-color: $success-text;
   }
 
   &.near {
-    border-left-color: $warning;
+    border-left-color: $warning-text;
   }
 
   &.expired {
-    border-left-color: $danger;
+    border-left-color: $danger-text;
   }
 
   &.finished {
-    border-left-color: #c8c9cc;
+    border-left-color: #a9a29b;
   }
 }
 
 .card-main {
   display: flex;
-  gap: 12px;
+  gap: 12PX;
 }
 
 .thumb {
   flex: none;
-  width: 78px;
-  height: 78px;
-  border-radius: 10px;
+  width: 76PX;
+  height: 76PX;
+  border-radius: 12PX;
   overflow: hidden;
-  background: #f7f8fa;
+  background: $line-soft;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -132,8 +134,8 @@ const photoSrc = computed(() => resolveUploadUrl(props.item.photoUrl))
 }
 
 .thumb-placeholder {
-  font-size: 32px;
-  opacity: 0.6;
+  font-size: 30PX;
+  opacity: 0.7;
 }
 
 .finished .thumb img {
@@ -144,19 +146,20 @@ const photoSrc = computed(() => resolveUploadUrl(props.item.photoUrl))
 .info {
   flex: 1;
   min-width: 0;
-  padding-right: 52px;
+  padding-right: 66PX;
 }
 
 .title-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 6PX;
 }
 
 .name {
-  font-size: $font-md;
-  font-weight: $font-bold;
-  color: $text-primary;
+  font-size: 16PX;
+  font-weight: 600;
+  line-height: 1.25;
+  color: $ink;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -164,62 +167,65 @@ const photoSrc = computed(() => resolveUploadUrl(props.item.photoUrl))
 
 .qty {
   flex: none;
-  font-size: $font-sm;
-  color: $text-secondary;
+  font-size: 13PX;
+  color: $ink-secondary;
 }
 
 .brand {
-  margin-top: 3px;
-  font-size: $font-xs;
-  color: $text-secondary;
+  margin-top: 3PX;
+  font-size: 12PX;
+  line-height: 1.5;
+  color: $ink-secondary;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .expire {
-  margin-top: 6px;
-  font-size: $font-xs;
-  color: $text-hint;
+  margin-top: 4PX;
+  font-size: 12PX;
+  line-height: 1.5;
+  color: $ink-muted;
 }
 
 .countdown {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 6px;
-  font-size: $font-sm;
-  font-weight: $font-medium;
+  gap: 4PX;
+  margin-top: 4PX;
+  font-size: 13PX;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .dot {
-  width: 6px;
-  height: 6px;
+  width: 5PX;
+  height: 5PX;
   border-radius: 50%;
   background: currentColor;
 }
 
 .normal .countdown {
-  color: $success;
+  color: $success-text;
 }
 
 .near .countdown {
-  color: #e69200;
+  color: $warning-text;
 }
 
 .expired .countdown {
-  color: $danger;
+  color: $danger-text;
 }
 
 .finished .countdown {
-  color: $text-hint;
+  color: $ink-muted;
 }
 
 .note {
-  margin-top: 6px;
-  font-size: $font-xs;
-  color: $text-secondary;
+  margin-top: 4PX;
+  font-size: 12PX;
   line-height: 1.5;
+  color: $ink-secondary;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -228,60 +234,67 @@ const photoSrc = computed(() => resolveUploadUrl(props.item.photoUrl))
 
 .status-tag {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  padding: 2px 6px;
-  font-size: 10px;
-  border-radius: 6px;
-  line-height: 14px;
+  top: 14PX;
+  right: 14PX;
+  padding: 0 8PX;
+  font-size: 12PX;
+  line-height: 20PX;
+  border-radius: 8PX;
   white-space: nowrap;
 }
 
 .normal .status-tag {
-  color: $success;
-  background: rgba(7, 193, 96, 0.1);
+  color: $success-text;
+  background: $success-tint;
 }
 
 .near .status-tag {
-  color: #d48806;
-  background: rgba(255, 193, 7, 0.18);
+  color: $warning-text;
+  background: $warning-tint;
 }
 
 .expired .status-tag {
-  color: $danger;
-  background: rgba(238, 10, 36, 0.1);
+  color: $danger-text;
+  background: $danger-tint;
 }
 
 .finished .status-tag {
-  color: $text-hint;
-  background: #f2f3f5;
+  color: $ink-muted;
+  background: $muted-tint;
 }
 
 .card-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed $border;
+  gap: 8PX;
+  margin-top: 12PX;
+  padding-top: 12PX;
+  border-top: 1PX solid $line-soft;
 }
 
 .action {
-  padding: 5px 12px;
-  font-size: $font-xs;
-  color: $text-secondary;
-  background: #f7f8fa;
-  border: none;
-  border-radius: $radius-full;
-  transition: background 150ms ease;
+  min-height: 44PX;
+  padding: 0 14PX;
+  font-size: 12PX;
+  color: $ink-secondary;
+  background: $surface;
+  border: 1PX solid $line;
+  border-radius: 12PX;
+  cursor: pointer;
+  transition: background $motion-fast $ease-standard, border-color $motion-fast $ease-standard;
 
   &:active {
-    background: #ebedf0;
+    background: $bg-warm;
   }
 
   &.danger {
-    color: $danger;
-    background: rgba(238, 10, 36, 0.06);
+    color: $danger-text;
+    background: $danger-tint;
+    border-color: #f2d6d9;
+
+    &:active {
+      background: #fbe2e4;
+    }
   }
 }
 </style>

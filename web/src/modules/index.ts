@@ -15,7 +15,7 @@
 //   path:        站内路由路径；external 为 true 时填完整 URL
 //   status:      'available' 可进入 | 'coming' 开发中（置灰不可点）
 //   badge?:      卡片右上角角标文案
-//   accent?:     卡片主色（图标底色）
+//   accent?:     图标砖底色（浅色；入口页用深色 emoji/图标压在其上）
 //   external?:   是否外部链接
 // ============================================
 
@@ -41,7 +41,7 @@ export const APP_MODULES: AppModule[] = [
     path: '/app',
     status: 'available',
     badge: '原有',
-    accent: '#FF6B35',
+    accent: '#FBE3D6',
   },
   {
     id: 'snacks',
@@ -51,6 +51,6 @@ export const APP_MODULES: AppModule[] = [
     path: '/snacks',
     status: 'available',
     badge: '新增',
-    accent: '#FFB020',
+    accent: '#F7EDD8',
   },
 ]

@@ -3,25 +3,45 @@
 // （由 vite additionalData 注入所有 scss，组件内可直接使用）
 // ============================================
 
-// 品牌色
+// 品牌色（$primary 保留给装饰与点餐系统既有视觉，$brand-action 为交互/文字用的深橙）
 $primary: #FF6B35;
 $primary-light: #FF8F5E;
 $primary-dark: #E55A2B;
 $primary-gradient: linear-gradient(135deg, #FF6B35 0%, #FF8F5E 100%);
+$brand-action: #C2410C; // 白字 on 它 = 5.18:1
+$brand-action-dark: #A8390A;
+$brand-tint: #FFF3EC;
+$brand-tint-strong: #FBE3D6;
 
-// 功能色
+// 功能色（底色/描边用；文字请用 *-text，保证 ≥4.5:1）
 $success: #07C160;
 $warning: #FFC107;
 $danger: #EE0A24;
 $info: #1989FA;
+$success-text: #0A7048;
+$warning-text: #A35A00;
+$danger-text: #B3121F;
+$success-tint: #EAF7F0;
+$warning-tint: #FFF6E5;
+$danger-tint: #FDEEEE;
+$muted-tint: #F2EEE9;
 
 // 文本与背景
 $text-primary: #333333;
 $text-secondary: #666666;
-$text-hint: #999999;
+$text-hint: #767676; // on 白 4.54:1（原 #999 仅 2.85）
 $bg-page: #F5F6FA;
 $bg-card: #FFFFFF;
 $border: #EBEDF0;
+// 入口页/零食页专用暖中性表面
+$bg-warm: #F6F4F0;
+$surface: #FFFFFF;
+$line: #E7E1D8;
+$line-soft: #F0EBE4;
+$ink: #241F1B;
+$ink-secondary: #5A524B;
+$ink-muted: #6F665F; // on 暖底 5.11:1
+$placeholder: #8A8078; // on 白 3.86:1
 
 // 间距
 $spacing-xs: 4px;
@@ -31,25 +51,39 @@ $spacing-lg: 24px;
 $spacing-xl: 32px;
 $spacing-xxl: 40px;
 
-// 圆角
-$radius-sm: 6px;
+// 圆角三档：8 小控件 / 12 卡片·输入 / 20 页头·弹层
+$radius-sm: 8px;
 $radius-md: 12px;
 $radius-lg: 20px;
 $radius-full: 9999px;
 
-// 阴影
-$shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.06);
-$shadow-card: 0 2px 12px rgba(0, 0, 0, 0.08);
-$shadow-popup: 0 -4px 20px rgba(0, 0, 0, 0.12);
-$shadow-tab: 0 -2px 10px rgba(0, 0, 0, 0.06);
+// 阴影（暖中性、低对比，取消彩色发光）
+$shadow-sm: 0 1px 2px rgba(36, 31, 27, 0.04);
+$shadow-card: 0 1px 2px rgba(36, 31, 27, 0.04), 0 8px 24px rgba(36, 31, 27, 0.06);
+$shadow-popup: 0 -8px 32px rgba(36, 31, 27, 0.14);
+$shadow-tab: 0 -2px 10px rgba(36, 31, 27, 0.06);
 
-// 字号
-$font-xs: 11px;
+// 字号（紧凑字阶 12 / 13 / 14 / 16 / 18 / 22）
+$font-xs: 12px;
 $font-sm: 13px;
-$font-md: 15px;
+$font-body: 14px;
+$font-md: 15px; // 点餐系统既有字号，保持不动
+$font-title: 16px;
 $font-lg: 18px;
 $font-xl: 22px;
 $font-xxl: 28px;
+
+// 行高
+$leading-body: 1.5;
+$leading-title: 1.25;
+
+// 动效
+$motion-fast: 150ms;
+$motion-base: 220ms;
+$ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+// 桌面内容列（大写 PX 绕开 px→vw 转换，避免 1440 下被等比放大；仅这两个新页面使用）
+$content-max: 760PX;
 
 // 字重
 $font-regular: 400;

@@ -151,6 +151,7 @@ function onSubmit() {
     position="bottom"
     round
     closeable
+    class="snack-form-popup"
     :style="{ maxHeight: '92%' }"
     @update:show="(v: boolean) => emit('update:modelValue', v)"
   >
@@ -166,6 +167,7 @@ function onSubmit() {
             :deletable="true"
             accept="image/*"
             :preview-image="true"
+            aria-label="上传零食照片"
             @delete="onPhotoDelete"
           >
             <div class="photo-trigger">
@@ -218,6 +220,7 @@ function onSubmit() {
       position="bottom"
       round
       teleport="body"
+      class="date-popup"
       :style="{ zIndex: 2200 }"
     >
       <van-date-picker
@@ -237,16 +240,45 @@ function onSubmit() {
   display: flex;
   flex-direction: column;
   max-height: 88vh;
-  padding: 20px 0 0;
-  background: $bg-page;
-  border-radius: $radius-lg $radius-lg 0 0;
+  padding: 20PX 0 0;
+  background: $bg-warm;
+  border-radius: 20PX 20PX 0 0;
+  // 固定组件内部尺寸，避免桌面端被 px→vw 放大（大写 PX 不参与转换）
+  --van-cell-font-size: 14PX;
+  --van-cell-line-height: 24PX;
+  --van-cell-vertical-padding: 12PX;
+  --van-cell-horizontal-padding: 16PX;
+  --van-field-label-color: #{$ink-secondary};
+  --van-field-input-text-color: #{$ink};
+  --van-stepper-input-height: 44PX;
+  --van-stepper-button-width: 44PX;
+  --van-stepper-input-width: 56PX;
+  --van-stepper-input-font-size: 14PX;
+  --van-button-default-height: 44PX;
+  // Vant 的字号/图标尺寸默认基于被 vw 化的 --van-font-size-*，逐项钉住
+  --van-field-word-limit-font-size: 12PX;
+  --van-cell-icon-size: 16PX;
+
+  :deep(.van-uploader__input-wrapper) {
+    display: block;
+  }
+
+  :deep(.van-button--primary) {
+    height: 48PX;
+    font-size: 16PX;
+    font-weight: 500;
+    border: none;
+    border-radius: 12PX;
+    background: $brand-action;
+  }
 }
 
 .form-title {
-  padding: 0 20px 14px;
-  font-size: $font-lg;
-  font-weight: $font-bold;
-  color: $text-primary;
+  padding: 0 20PX 14PX;
+  font-size: 18PX;
+  font-weight: 700;
+  line-height: 1.25;
+  color: $ink;
 }
 
 .form-scroll {
@@ -255,31 +287,76 @@ function onSubmit() {
 }
 
 .photo-block {
-  padding: 0 16px 14px;
+  padding: 0 16PX 14PX;
 }
 
 .photo-trigger {
-  width: 88px;
-  height: 88px;
+  width: 88PX;
+  height: 88PX;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  color: $text-hint;
-  font-size: $font-xs;
-  background: $bg-card;
-  border-radius: $radius-sm;
-  border: 1px dashed $border;
+  gap: 4PX;
+  color: $ink-muted;
+  font-size: 12PX;
+  background: $surface;
+  border-radius: 12PX;
+  border: 1PX dashed $line;
 }
 
 .photo-hint {
-  margin-top: 8px;
-  font-size: $font-xs;
-  color: $text-hint;
+  margin-top: 8PX;
+  font-size: 12PX;
+  line-height: 1.5;
+  color: $ink-muted;
 }
 
 .form-actions {
-  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  padding: 20PX 16PX calc(20PX + env(safe-area-inset-bottom));
+}
+
+// 弹层右上角关闭按钮：Vant 默认 23×23，且位于 .form-wrap 之外（同级），
+// 因此这条必须放在顶层（不能嵌在 .form-wrap 里），并放大到 44×44。
+:deep(.van-popup__close-icon) {
+  width: 44PX;
+  height: 44PX;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20PX;
+  color: $ink-muted;
+}
+
+// 日期选择弹层：teleport 到 body（根元素仍带本组件的 scopeId），
+// 内部 Vant 变量被 vw 化，需要逐项钉住，否则桌面 1440 会放大到 3.84 倍
+.date-popup {
+  font-size: 14PX;
+  --van-picker-toolbar-height: 44PX;
+  --van-picker-title-font-size: 18PX;
+  --van-picker-action-font-size: 14PX;
+  --van-picker-option-font-size: 16PX;
+
+  :deep(.van-picker__title) {
+    line-height: 44PX;
+  }
+
+  :deep(.van-picker-column__item) {
+    height: 44PX;
+    line-height: 44PX;
+  }
+}
+
+// 桌面：底部弹层收成与内容同宽（760PX）居中，不再拉满整屏
+@media (min-width: 768px) {
+  .snack-form-popup,
+  .date-popup {
+    left: 50%;
+    right: auto;
+    width: $content-max;
+    margin-left: calc($content-max / -2);
+    border-radius: 16PX 16PX 0 0;
+    overflow: hidden;
+  }
 }
 </style>

@@ -44,11 +44,11 @@ a {
 
 // 通用按压反馈
 .press {
-  transition: transform 150ms ease;
+  transition: transform $motion-fast $ease-standard;
   cursor: pointer;
 
   &:active {
-    transform: scale(0.95);
+    transform: scale(0.98);
   }
 }
 
@@ -142,7 +142,7 @@ a {
 
 .page-enter-active,
 .page-leave-active {
-  transition: opacity 300ms ease-in-out, transform 300ms ease-in-out;
+  transition: opacity $motion-base $ease-standard, transform $motion-base $ease-standard;
 }
 
 .page-enter-from {
@@ -153,4 +153,38 @@ a {
 .page-leave-to {
   opacity: 0;
   transform: translateY(8px);
+}
+
+// ---------------- 可访问性基线 ----------------
+
+// 键盘焦点环：全站统一，保证任何可聚焦元素都有可见焦点。
+// 需显式列出元素选择器：Vant 的基础样式里有
+// `a:focus,input:focus,button:focus,textarea:focus,[class*=van-]:focus{outline:none}`
+// 特异性高于单独的 :focus-visible，必须用同级或更高特异性覆盖。
+:focus-visible,
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[class*='van-']:focus-visible {
+  outline: 2px solid $brand-action;
+  outline-offset: 2px;
+}
+
+// 深色/彩色底上的控件用白色焦点环，避免与背景混同
+.on-dark :focus-visible {
+  outline-color: #fff;
+}
+
+// 尊重系统「减少动态效果」设置
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
