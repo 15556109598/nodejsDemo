@@ -139,10 +139,24 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 ## 七、零食日期管理模块
 
 - 页面：`/snacks`（无需登录，所有人共用同一份清单）
-- 数据：`server/data/snacks.json`（可用 `DATA_DIR` 覆盖）
-- 图片：`server/uploads/snacks/`，通过 `/uploads/snacks/xxx.jpg` 访问（可用 `UPLOAD_DIR` 覆盖）
-- 上传限制：JPG / PNG / WEBP / GIF；单张 ≤ 5MB；校验 MIME + 文件头魔数；文件名随机生成
-- 默认临近过期阈值 7 天（`NEAR_DAYS` 或页面「设置」内可改，设置保存在数据文件里，全局共享）
+- 数据：Supabase Postgres 表 `public.snacks`（记录）与 `public.app_settings`（阈值等全局设置）
+- 图片：Supabase Storage 桶 `snacks/`（公开读），接口返回 Storage 公开 URL，页面直接显示
+- 上传限制：JPG / PNG / WEBP / GIF；单张 ≤ 5MB；校验 MIME + 文件头魔数；对象名随机生成
+- 默认临近过期阈值 7 天（`NEAR_DAYS` 或页面「设置」内可改，设置存 `app_settings`，全局共享）
+
+### 7.1 迁移与配置（必须执行一次）
+
+1. Supabase Dashboard → **SQL Editor** → 粘贴 [server/sql/snacks.sql](server/sql/snacks.sql) → Run。
+   脚本可重复执行，包含：建表、索引、`updated_at` 触发器、RLS（开启但**不建** anon/authenticated 策略，仅 service_role 可读写）、`snacks` 公开读桶与读取策略。
+2. 确认 `server/.env` / Render Environment 中已有 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（service_role 只在后端使用）。
+3. 可选：`SNACKS_BUCKET`（默认 `snacks`）、`NEAR_DAYS`（默认 7）。
+4. 可选：从旧 JSON 迁移（仅当曾经用过 JSON 版本）：
+   ```powershell
+   cd server
+   node scripts/import-snacks-json.js   # 默认读 data/snacks.json，并把 uploads 里的图片传到 Storage
+   ```
+
+未执行 SQL 时：`GET /api/snacks` 返回 `503 数据表尚未创建…`，页面列表为空并提示错误；点餐模块不受影响。
 
 接口：
 
@@ -152,7 +166,7 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 | POST | `/api/snacks` | 新增（JSON） |
 | PUT | `/api/snacks/:id` | 编辑（JSON） |
 | POST | `/api/snacks/:id/finish` | 标记吃完 / 取消归档（`{finished:true/false}`） |
-| DELETE | `/api/snacks/:id` | 删除（同时清理未被引用的图片） |
+| DELETE | `/api/snacks/:id` | 删除（同时删除 Storage 中的图片） |
 | POST | `/api/snacks/photo` | 上传图片（请求体为原始二进制，`Content-Type` 为图片 MIME） |
 | PUT | `/api/snacks/settings` | 修改临近过期阈值 `{nearDays: 1~60}` |
 
@@ -164,17 +178,17 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 
 1. 推送到 GitHub 仓库（本仓库已有 `origin`）。
 2. Render Dashboard → **New → Blueprint** → 选择本仓库（会自动读取根目录 [render.yaml](render.yaml)：`rootDir: .`，构建前端 + 后端，启动 `node server/dist/index.js`）。
-3. 在服务 Environment 中手动填入：`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`（零食模块不依赖它们，但点餐系统需要）。
+3. 在服务 Environment 中手动填入：`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`（点餐系统需要前两项，零食模块需要后两项）。
 4. 部署完成后访问 `https://<服务名>.onrender.com`：`/` 为模块导航，`/app` 为点餐，`/snacks` 为零食模块；`/api/health` 应返回 `{"code":0,"data":"ok"}`。
 
 数据持久化注意：
 
-- Render 免费实例磁盘为**临时盘**，重新部署 / 实例重启后 `server/data` 与 `server/uploads` 会清空。
-- 需要长期保存：升级付费实例 → 挂载 Persistent Disk（如 `/var/data`，1GB 起）→ 在 Environment 设置 `DATA_DIR=/var/data`、`UPLOAD_DIR=/var/data/uploads`（`render.yaml` 内已有注释示例）。
-- 也可以用备份方案：定期下载 `server/data/snacks.json` 与 `uploads` 目录。
+- 零食数据与图片都在 Supabase（Postgres + Storage），**不受 Render 临时盘影响**，重启/重新部署不会丢数据。
+- 点餐系统的数据同样在 Supabase；Render 实例磁盘只存放代码与构建产物。
+- 服务端没有任何本地数据目录需要挂盘（旧 JSON 版本已由 Supabase 方案取代）。
 
 备选部署方式：
 
-- 前端静态站点（Vercel / Render Static Site）+ 后端 Web Service：前端构建时设置 `VITE_API_BASE=https://<后端域名>/api`，后端 `CORS_ORIGIN` 填前端域名；但图片地址依赖后端 `/uploads`，需保证后端可公网访问。
+- 前端静态站点（Vercel / Render Static Site）+ 后端 Web Service：前端构建时设置 `VITE_API_BASE=https://<后端域名>/api`，后端 `CORS_ORIGIN` 填前端域名；图片为 Supabase Storage 绝对地址，跨域无影响。
 - 仅本地运行：`server` 下 `npm run build && npm start`（先 `web` 下 `npm run build`，由后端托管页面），浏览器打开 `http://localhost:3000`。
 

@@ -1,8 +1,7 @@
-// 零食日期管理：JSON 文件持久化 + 图片落地存储
-// 单人/小团队场景，进程内缓存 + 原子写（临时文件 rename），避免高并发写坏文件
-import fs from 'fs';
-import path from 'path';
+// 零食日期管理：Supabase Postgres（记录/设置）+ Storage（图片）
+// 服务端统一使用 service_role，匿名用户只通过本服务接口读写
 import crypto from 'crypto';
+import { adminClient } from '../lib/supabase';
 import { env } from '../env';
 
 export interface SnackItem {
@@ -10,12 +9,11 @@ export interface SnackItem {
   name: string;
   brand: string;
   quantity: number;
-  // 到期日（YYYY-MM-DD，仅日期，不含时区）
+  // 到期日（YYYY-MM-DD）
   expireDate: string;
   note: string;
-  // 形如 /uploads/snacks/xxx.jpg，前端按 API 域名拼接
+  // Supabase Storage 公开地址
   photoUrl: string;
-  // 是否已吃完归档
   finished: boolean;
   finishedAt: string | null;
   createdAt: string;
@@ -23,87 +21,7 @@ export interface SnackItem {
 }
 
 export interface SnackSettings {
-  // 临近过期阈值（天）
   nearDays: number;
-}
-
-interface SnackDB {
-  version: number;
-  settings: SnackSettings;
-  items: SnackItem[];
-}
-
-const DATA_FILE = path.join(env.DATA_DIR, 'snacks.json');
-export const PHOTO_DIR = path.join(env.UPLOAD_DIR, 'snacks');
-
-// 图片白名单：MIME → 扩展名
-const MIME_EXT: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-};
-
-export const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
-
-let cache: SnackDB | null = null;
-
-function ensureDirs(): void {
-  fs.mkdirSync(env.DATA_DIR, { recursive: true });
-  fs.mkdirSync(PHOTO_DIR, { recursive: true });
-}
-
-function defaultDB(): SnackDB {
-  return { version: 1, settings: { nearDays: env.NEAR_DAYS > 0 ? env.NEAR_DAYS : 7 }, items: [] };
-}
-
-function load(): SnackDB {
-  if (cache) return cache;
-  ensureDirs();
-  try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-    const parsed = JSON.parse(raw) as SnackDB;
-    cache = {
-      version: parsed.version || 1,
-      settings: { nearDays: Number(parsed.settings?.nearDays) || 7 },
-      items: Array.isArray(parsed.items) ? parsed.items : [],
-    };
-  } catch {
-    // 文件不存在或损坏（首次启动）：使用空数据
-    cache = defaultDB();
-  }
-  return cache;
-}
-
-function persist(): void {
-  const db = load();
-  ensureDirs();
-  const tmp = `${DATA_FILE}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2), 'utf-8');
-  fs.renameSync(tmp, DATA_FILE);
-}
-
-function nowISO(): string {
-  return new Date().toISOString();
-}
-
-export function getSettings(): SnackSettings {
-  return { ...load().settings };
-}
-
-export function setNearDays(nearDays: number): SnackSettings {
-  const db = load();
-  db.settings.nearDays = nearDays;
-  persist();
-  return getSettings();
-}
-
-export function listSnacks(): SnackItem[] {
-  return load().items.slice();
-}
-
-export function getSnack(id: string): SnackItem | undefined {
-  return load().items.find((it) => it.id === id);
 }
 
 export interface SnackInput {
@@ -115,75 +33,176 @@ export interface SnackInput {
   photoUrl: string;
 }
 
-export function createSnack(input: SnackInput): SnackItem {
-  const db = load();
-  const ts = nowISO();
-  const item: SnackItem = {
-    id: crypto.randomUUID(),
-    ...input,
-    finished: false,
-    finishedAt: null,
-    createdAt: ts,
-    updatedAt: ts,
+// 表名 / 桶名（桶名可用 SNACKS_BUCKET 覆盖）
+const TABLE = 'snacks';
+const SETTINGS_TABLE = 'app_settings';
+const SETTINGS_KEY = 'snacks';
+export const BUCKET = env.SNACKS_BUCKET;
+export const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
+
+const MIME_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+};
+
+const EXT_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+
+interface SnackRow {
+  id: string;
+  name: string;
+  brand: string;
+  quantity: number;
+  expire_date: string;
+  note: string;
+  photo_url: string;
+  finished: boolean;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapRow(row: SnackRow): SnackItem {
+  return {
+    id: row.id,
+    name: row.name,
+    brand: row.brand,
+    quantity: row.quantity,
+    expireDate: String(row.expire_date).slice(0, 10),
+    note: row.note,
+    photoUrl: row.photo_url,
+    finished: row.finished,
+    finishedAt: row.finished_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
-  db.items.push(item);
-  persist();
-  return item;
 }
 
-export function updateSnack(id: string, input: Partial<SnackInput>): SnackItem | undefined {
-  const db = load();
-  const item = db.items.find((it) => it.id === id);
-  if (!item) return undefined;
-  Object.assign(item, input, { updatedAt: nowISO() });
-  persist();
-  return item;
+// 保留数据库错误码，便于上层区分「表未创建」等可操作错误
+function raise(error: any): never {
+  const err = new Error(error?.message || '数据库操作失败') as Error & { code?: string };
+  err.code = error?.code;
+  throw err;
 }
 
-export function setFinished(id: string, finished: boolean): SnackItem | undefined {
-  const db = load();
-  const item = db.items.find((it) => it.id === id);
-  if (!item) return undefined;
-  item.finished = finished;
-  item.finishedAt = finished ? nowISO() : null;
-  item.updatedAt = nowISO();
-  persist();
-  return item;
+// 默认按到期日由近到远，已吃完的排在最后（归档时间倒序）
+function sortItems(items: SnackItem[]): SnackItem[] {
+  return items.sort((a, b) => {
+    if (a.finished !== b.finished) return a.finished ? 1 : -1;
+    if (a.finished && b.finished) {
+      return (b.finishedAt || '').localeCompare(a.finishedAt || '');
+    }
+    return a.expireDate.localeCompare(b.expireDate);
+  });
 }
 
-export function removeSnack(id: string): SnackItem | undefined {
-  const db = load();
-  const index = db.items.findIndex((it) => it.id === id);
-  if (index < 0) return undefined;
-  const [removed] = db.items.splice(index, 1);
-  persist();
-  // 没有其它记录引用该图片时才删除文件
-  if (removed.photoUrl && !db.items.some((it) => it.photoUrl === removed.photoUrl)) {
-    removePhotoFile(removed.photoUrl);
+export async function listSnacks(): Promise<SnackItem[]> {
+  const { data, error } = await adminClient.from(TABLE).select('*');
+  if (error) raise(error);
+  return sortItems((data as SnackRow[]).map(mapRow));
+}
+
+export async function createSnack(input: SnackInput): Promise<SnackItem> {
+  const { data, error } = await adminClient
+    .from(TABLE)
+    .insert({
+      name: input.name,
+      brand: input.brand,
+      quantity: input.quantity,
+      expire_date: input.expireDate,
+      note: input.note,
+      photo_url: input.photoUrl,
+      finished: false,
+    })
+    .select('*')
+    .single();
+  if (error) raise(error);
+  return mapRow(data as SnackRow);
+}
+
+export async function updateSnack(id: string, input: Partial<SnackInput>): Promise<SnackItem | null> {
+  const patch: Record<string, unknown> = {};
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.brand !== undefined) patch.brand = input.brand;
+  if (input.quantity !== undefined) patch.quantity = input.quantity;
+  if (input.expireDate !== undefined) patch.expire_date = input.expireDate;
+  if (input.note !== undefined) patch.note = input.note;
+  if (input.photoUrl !== undefined) patch.photo_url = input.photoUrl;
+
+  const { data, error } = await adminClient
+    .from(TABLE)
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .maybeSingle();
+  if (error) raise(error);
+  return data ? mapRow(data as SnackRow) : null;
+}
+
+export async function setFinished(id: string, finished: boolean): Promise<SnackItem | null> {
+  const { data, error } = await adminClient
+    .from(TABLE)
+    .update({ finished, finished_at: finished ? new Date().toISOString() : null })
+    .eq('id', id)
+    .select('*')
+    .maybeSingle();
+  if (error) raise(error);
+  return data ? mapRow(data as SnackRow) : null;
+}
+
+export async function removeSnack(id: string): Promise<SnackItem | null> {
+  // 先取记录，删除后清理 Storage 里的图片（取不到则视为不存在）
+  const { data, error } = await adminClient
+    .from(TABLE)
+    .delete()
+    .eq('id', id)
+    .select('*')
+    .maybeSingle();
+  if (error) raise(error);
+  if (!data) return null;
+
+  const item = mapRow(data as SnackRow);
+  if (item.photoUrl) {
+    const path = storagePathFromUrl(item.photoUrl);
+    if (path) {
+      const { error: storageError } = await adminClient.storage.from(BUCKET).remove([path]);
+      if (storageError) console.warn('[snacks] 删除图片失败:', storageError.message);
+    }
   }
-  return removed;
+  return item;
 }
 
-function removePhotoFile(photoUrl: string): void {
-  if (!photoUrl.startsWith('/uploads/snacks/')) return;
-  const filename = path.basename(photoUrl);
-  try {
-    fs.unlinkSync(path.join(PHOTO_DIR, filename));
-  } catch {
-    // 文件不存在时忽略
-  }
+export async function getSettings(): Promise<SnackSettings> {
+  const { data, error } = await adminClient
+    .from(SETTINGS_TABLE)
+    .select('value')
+    .eq('key', SETTINGS_KEY)
+    .maybeSingle();
+  if (error) raise(error);
+  const nearDays = Number((data?.value as any)?.nearDays);
+  return { nearDays: nearDays >= 1 && nearDays <= 60 ? nearDays : env.NEAR_DAYS || 7 };
 }
 
-// 校验图片的真实类型（魔数），防止改扩展名上传非图片文件
+export async function setNearDays(nearDays: number): Promise<SnackSettings> {
+  const { error } = await adminClient
+    .from(SETTINGS_TABLE)
+    .upsert({ key: SETTINGS_KEY, value: { nearDays }, updated_at: new Date().toISOString() });
+  if (error) raise(error);
+  return { nearDays };
+}
+
+// 校验图片真实类型（魔数），防止改扩展名上传非图片文件
 function sniffImageExt(buf: Buffer): string | null {
   if (buf.length < 12) return null;
-  // PNG: 89 50 4E 47 0D 0A 1A 0A
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'png';
-  // JPEG: FF D8 FF
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
-  // GIF: GIF8
   if (buf.toString('ascii', 0, 4) === 'GIF8') return 'gif';
-  // WEBP: RIFF....WEBP
   if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'webp';
   return null;
 }
@@ -194,7 +213,8 @@ export interface SavePhotoResult {
   status?: number;
 }
 
-export function savePhoto(buffer: Buffer, declaredMime: string): SavePhotoResult {
+// 上传到 Storage：随机文件名 + 白名单校验 + 大小上限
+export async function savePhoto(buffer: Buffer, declaredMime: string): Promise<SavePhotoResult> {
   const mime = declaredMime.split(';')[0].trim().toLowerCase();
   if (!MIME_EXT[mime]) {
     return { error: '仅支持 JPG / PNG / WEBP / GIF 格式', status: 415 };
@@ -209,14 +229,30 @@ export function savePhoto(buffer: Buffer, declaredMime: string): SavePhotoResult
   if (!ext) {
     return { error: '图片内容不合法（文件头校验失败）', status: 400 };
   }
-  ensureDirs();
-  const filename = `${Date.now().toString(36)}-${crypto.randomBytes(8).toString('hex')}.${ext}`;
-  fs.writeFileSync(path.join(PHOTO_DIR, filename), buffer);
-  return { url: `/uploads/snacks/${filename}` };
+
+  const day = new Date().toISOString().slice(0, 10);
+  const path = `${day}/${Date.now().toString(36)}-${crypto.randomBytes(8).toString('hex')}.${ext}`;
+  const { error } = await adminClient.storage.from(BUCKET).upload(path, buffer, {
+    contentType: EXT_MIME[ext],
+    upsert: false,
+    cacheControl: '31536000',
+  });
+  if (error) {
+    return { error: `图片上传失败：${error.message}`, status: 502 };
+  }
+  const { data } = adminClient.storage.from(BUCKET).getPublicUrl(path);
+  return { url: data.publicUrl };
 }
 
-// 进程启动时清理上传目录里无法解析的残留（如写入中断）
-export function ensureStorageReady(): void {
-  ensureDirs();
-  load();
+// 从 Storage 公开地址解析对象路径
+function storagePathFromUrl(url: string): string | null {
+  const marker = `/storage/v1/object/public/${BUCKET}/`;
+  const index = url.indexOf(marker);
+  if (index < 0) return null;
+  const path = url.slice(index + marker.length).split('?')[0];
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }

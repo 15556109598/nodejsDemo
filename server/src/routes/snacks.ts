@@ -1,4 +1,4 @@
-// 零食日期管理接口：无需登录，所有人共享同一份数据
+// 零食日期管理接口：无需登录，所有人共享同一份数据（Supabase）
 // GET    /api/snacks            列表 + 设置
 // PUT    /api/snacks/settings   修改临近过期阈值
 // POST   /api/snacks/photo      上传图片（原始二进制，Content-Type 为图片 MIME）
@@ -25,6 +25,13 @@ const router = Router();
 
 const PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+// 异步路由包装：把 Promise 异常交给统一错误处理
+function wrap(handler: (req: Request, res: Response) => Promise<void>) {
+  return (req: Request, res: Response, next: (err: unknown) => void): void => {
+    handler(req, res).catch(next);
+  };
+}
+
 // 日期合法性：YYYY-MM-DD 且为真实存在的日期
 function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -33,7 +40,7 @@ function isValidDate(value: string): boolean {
   return d.toISOString().slice(0, 10) === value;
 }
 
-// 字段校验：返回错误信息或 null
+// 字段校验：返回错误信息或校验后的数据
 function validateInput(body: any, partial = false): { error?: string; data?: Partial<SnackInput> } {
   const data: Partial<SnackInput> = {};
 
@@ -72,8 +79,8 @@ function validateInput(body: any, partial = false): { error?: string; data?: Par
 
   if (!partial || body.photoUrl !== undefined) {
     const photoUrl = String(body.photoUrl ?? '').trim();
-    // 只接受本服务上传目录内的相对地址，避免写入外部链接
-    if (photoUrl && !/^\/uploads\/snacks\/[A-Za-z0-9._-]+$/.test(photoUrl)) {
+    // 只接受 Supabase Storage 的公开地址，避免写入任意外链
+    if (photoUrl && !/^https:\/\/[^\s]+\/storage\/v1\/object\/public\/snacks\/[^\s]+$/.test(photoUrl)) {
       return { error: '图片地址不合法' };
     }
     data.photoUrl = photoUrl;
@@ -82,95 +89,103 @@ function validateInput(body: any, partial = false): { error?: string; data?: Par
   return { data };
 }
 
-// 默认按到期日由近到远排序（已吃完的排在最后）
-function sortItems<T extends { expireDate: string; finished: boolean; finishedAt: string | null }>(items: T[]): T[] {
-  return items.sort((a, b) => {
-    if (a.finished !== b.finished) return a.finished ? 1 : -1;
-    if (a.finished && b.finished) {
-      return (b.finishedAt || '').localeCompare(a.finishedAt || '');
-    }
-    return a.expireDate.localeCompare(b.expireDate);
-  });
-}
-
 // 列表（附带设置，前端据 nearDays 计算状态）
-router.get('/', (_req: Request, res: Response): void => {
-  ok(res, { items: sortItems(listSnacks()), settings: getSettings() });
-});
+router.get(
+  '/',
+  wrap(async (_req, res) => {
+    const [items, settings] = await Promise.all([listSnacks(), getSettings()]);
+    ok(res, { items, settings });
+  })
+);
 
 // 修改临近过期阈值
-router.put('/settings', (req: Request, res: Response): void => {
-  const nearDays = Number(req.body?.nearDays);
-  if (!Number.isInteger(nearDays) || nearDays < 1 || nearDays > 60) {
-    fail(res, 400, '提醒阈值需为 1~60 天');
-    return;
-  }
-  ok(res, setNearDays(nearDays));
-});
+router.put(
+  '/settings',
+  wrap(async (req, res) => {
+    const nearDays = Number(req.body?.nearDays);
+    if (!Number.isInteger(nearDays) || nearDays < 1 || nearDays > 60) {
+      fail(res, 400, '提醒阈值需为 1~60 天');
+      return;
+    }
+    ok(res, await setNearDays(nearDays));
+  })
+);
 
 // 图片上传：原始二进制（express.raw），校验 MIME 白名单 + 文件头 + 大小上限
 router.post(
   '/photo',
   express.raw({ type: PHOTO_MIMES, limit: MAX_PHOTO_BYTES }),
-  (req: Request, res: Response): void => {
+  wrap(async (req, res) => {
     const mime = String(req.headers['content-type'] || '');
     if (!PHOTO_MIMES.includes(mime.split(';')[0].trim().toLowerCase())) {
       fail(res, 415, '仅支持 JPG / PNG / WEBP / GIF 格式');
       return;
     }
-    const result = savePhoto(req.body as Buffer, mime);
+    const result = await savePhoto(req.body as Buffer, mime);
     if (result.error || !result.url) {
       fail(res, result.status || 400, result.error || '图片保存失败');
       return;
     }
     ok(res, { url: result.url });
-  }
+  })
 );
 
 // 新增
-router.post('/', (req: Request, res: Response): void => {
-  const { error, data } = validateInput(req.body || {});
-  if (error || !data) {
-    fail(res, 400, error || '参数不合法');
-    return;
-  }
-  ok(res, createSnack(data as SnackInput));
-});
+router.post(
+  '/',
+  wrap(async (req, res) => {
+    const { error, data } = validateInput(req.body || {});
+    if (error || !data) {
+      fail(res, 400, error || '参数不合法');
+      return;
+    }
+    ok(res, await createSnack(data as SnackInput));
+  })
+);
 
 // 编辑
-router.put('/:id', (req: Request, res: Response): void => {
-  const { error, data } = validateInput(req.body || {}, true);
-  if (error || !data) {
-    fail(res, 400, error || '参数不合法');
-    return;
-  }
-  const item = updateSnack(req.params.id, data);
-  if (!item) {
-    fail(res, 404, '记录不存在');
-    return;
-  }
-  ok(res, item);
-});
+router.put(
+  '/:id',
+  wrap(async (req, res) => {
+    const { error, data } = validateInput(req.body || {}, true);
+    if (error || !data) {
+      fail(res, 400, error || '参数不合法');
+      return;
+    }
+    const item = await updateSnack(req.params.id, data);
+    if (!item) {
+      fail(res, 404, '记录不存在');
+      return;
+    }
+    ok(res, item);
+  })
+);
 
 // 标记吃完 / 取消归档
-router.post('/:id/finish', (req: Request, res: Response): void => {
-  const finished = req.body?.finished === undefined ? true : Boolean(req.body.finished);
-  const item = setFinished(req.params.id, finished);
-  if (!item) {
-    fail(res, 404, '记录不存在');
-    return;
-  }
-  ok(res, item);
-});
+router.post(
+  '/:id/finish',
+  wrap(async (req, res) => {
+    const finished = req.body?.finished === undefined ? true : Boolean(req.body.finished);
+    const item = await setFinished(req.params.id, finished);
+    if (!item) {
+      fail(res, 404, '记录不存在');
+      return;
+    }
+    ok(res, item);
+  })
+);
 
 // 删除
-router.delete('/:id', (req: Request, res: Response): void => {
-  const item = removeSnack(req.params.id);
-  if (!item) {
-    fail(res, 404, '记录不存在');
-    return;
-  }
-  ok(res, { id: item.id });
-});
+router.delete(
+  '/:id',
+  wrap(async (req, res) => {
+    const item = await removeSnack(req.params.id);
+    if (!item) {
+      fail(res, 404, '记录不存在');
+      return;
+    }
+    ok(res, { id: item.id });
+  })
+);
 
 export default router;
