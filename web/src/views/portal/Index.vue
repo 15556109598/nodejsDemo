@@ -3,6 +3,8 @@
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { APP_MODULES, type AppModule } from '@/modules'
+// 入口页顶部主图：噜噜和噜妹（原图 1316×784，已压缩为 1100×655 JPEG）
+import heroPhoto from '@/assets/portal/lulu-lumei.jpg'
 
 const router = useRouter()
 
@@ -23,12 +25,14 @@ function openModule(mod: AppModule) {
   <div class="portal">
     <header class="portal-header">
       <div class="brand">
-        <span class="brand-icon">🍳</span>
-        <div>
-          <h1>小厨应用中心</h1>
-          <p>选择一个模块开始使用</p>
-        </div>
+        <h1>小厨应用中心</h1>
+        <p>选择一个模块开始使用</p>
       </div>
+
+      <div class="hero">
+        <img class="hero-img" :src="heroPhoto" alt="噜噜和噜妹" />
+      </div>
+
       <div class="header-deco deco-1" />
       <div class="header-deco deco-2" />
     </header>
@@ -88,7 +92,8 @@ function openModule(mod: AppModule) {
 .portal-header {
   position: relative;
   overflow: hidden;
-  padding: 32px 20px 44px;
+  // 顶部留出状态栏/刘海安全区，避免标题与图片被系统栏压住
+  padding: calc(22px + env(safe-area-inset-top)) 16px 20px;
   border-radius: 0 0 24px 24px;
   background: linear-gradient(135deg, #ff6b35 0%, #ff9f43 100%);
   color: #fff;
@@ -97,9 +102,6 @@ function openModule(mod: AppModule) {
 .brand {
   position: relative;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 12px;
 
   h1 {
     font-size: $font-xl;
@@ -114,16 +116,26 @@ function openModule(mod: AppModule) {
   }
 }
 
-.brand-icon {
-  width: 52px;
-  height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(4px);
+// 顶部主图：噜噜和噜妹，16:9 横幅，圆角 + 白色描边与卡片风格统一
+.hero {
+  position: relative;
+  z-index: 2;
+  margin-top: 16px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 3px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 10px 24px rgba(120, 50, 10, 0.28);
+  background: #f7d2bd;
+}
+
+.hero-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  // 主体（两只玩偶的脸与身体）位于画面中部偏上，裁切时优先保留
+  object-fit: cover;
+  object-position: 50% 42%;
 }
 
 .header-deco {
