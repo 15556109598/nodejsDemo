@@ -16,7 +16,7 @@ const route = useRoute()
 
   <!-- 三大 Tab：仅 tab 页显示 -->
   <van-tabbar v-if="route.meta.tabbar" route safe-area-inset-bottom>
-    <van-tabbar-item to="/" icon="shop-o">点餐</van-tabbar-item>
+    <van-tabbar-item to="/app" icon="shop-o">点餐</van-tabbar-item>
     <van-tabbar-item to="/order" icon="orders-o">订单</van-tabbar-item>
     <van-tabbar-item to="/mine" icon="user-o">我的</van-tabbar-item>
   </van-tabbar>

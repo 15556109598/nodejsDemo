@@ -70,7 +70,7 @@ function onReorder() {
     })
   }
   showToast('已加入购物车')
-  router.push('/')
+  router.push('/app')
 }
 </script>
 

@@ -24,7 +24,7 @@ function doLogin() {
     .login({ email: loginForm.email, password: loginForm.password })
     .then(() => {
       showToast('登录成功')
-      router.replace((route.query.redirect as string) || '/')
+      router.replace((route.query.redirect as string) || '/app')
     })
     .catch(() => undefined)
     .finally(() => (submitting.value = false))
@@ -36,7 +36,7 @@ function doRegister() {
     .register({ email: regForm.email, password: regForm.password, nickname: regForm.nickname })
     .then(() => {
       showToast('注册成功，欢迎加入小厨~')
-      router.replace((route.query.redirect as string) || '/')
+      router.replace((route.query.redirect as string) || '/app')
     })
     .catch(() => undefined)
     .finally(() => (submitting.value = false))

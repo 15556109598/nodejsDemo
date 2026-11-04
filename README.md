@@ -106,3 +106,75 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 | `web: npm run dev` | 前端开发服务器 |
 | `web: npm run build` | 前端打包到 dist |
 | `web: npm run type-check` | vue-tsc 类型检查 |
+
+---
+
+## 六、模块化入口（如何新增模块）
+
+项目入口 `/` 已改造为「模块导航页」，点餐系统整体迁到 `/app`，新增的零食模块为 `/snacks`。
+
+模块信息集中在一处配置：[web/src/modules/index.ts](web/src/modules/index.ts)。
+
+新增一个模块只需两步：
+
+1. 在 `APP_MODULES` 数组追加一条配置（`id` 唯一）：
+
+```ts
+{
+  id: 'your-module',
+  name: '模块名称',
+  description: '一句话说明',
+  icon: '🧩',            // emoji，或用 iconType: 'vant' + Vant 图标名
+  path: '/your-module',  // 站内路由；外链填完整 URL 并设置 external: true
+  status: 'available',   // 'coming' 会显示为置灰的「开发中」
+  badge: '新增',
+  accent: '#1989FA',
+}
+```
+
+2. 在 [web/src/router/index.ts](web/src/router/index.ts) 的 `routes` 里登记该 `path`（外链模块可跳过）；若该模块无需登录，同时把路径加入 `PUBLIC_PATHS`。
+
+入口页会自动渲染新卡片，无需改动入口页代码。后端模块按现有方式在 `server/src/index.ts` 中 `app.use('/api/xxx', xxxRoutes)` 挂载即可。
+
+## 七、零食日期管理模块
+
+- 页面：`/snacks`（无需登录，所有人共用同一份清单）
+- 数据：`server/data/snacks.json`（可用 `DATA_DIR` 覆盖）
+- 图片：`server/uploads/snacks/`，通过 `/uploads/snacks/xxx.jpg` 访问（可用 `UPLOAD_DIR` 覆盖）
+- 上传限制：JPG / PNG / WEBP / GIF；单张 ≤ 5MB；校验 MIME + 文件头魔数；文件名随机生成
+- 默认临近过期阈值 7 天（`NEAR_DAYS` 或页面「设置」内可改，设置保存在数据文件里，全局共享）
+
+接口：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/snacks` | 列表 + 设置（按到期日由近到远，已吃完排最后） |
+| POST | `/api/snacks` | 新增（JSON） |
+| PUT | `/api/snacks/:id` | 编辑（JSON） |
+| POST | `/api/snacks/:id/finish` | 标记吃完 / 取消归档（`{finished:true/false}`） |
+| DELETE | `/api/snacks/:id` | 删除（同时清理未被引用的图片） |
+| POST | `/api/snacks/photo` | 上传图片（请求体为原始二进制，`Content-Type` 为图片 MIME） |
+| PUT | `/api/snacks/settings` | 修改临近过期阈值 `{nearDays: 1~60}` |
+
+前端：卡片倒计时（正常 / 临近 / 已过期 / 已用完 配色区分）、名称搜索、状态筛选、编辑删除、吃完归档、打开页面时的过期/临期提示条、获得通知权限后发送浏览器通知（同一记录同一状态每天只提醒一次）、每 20 秒自动刷新。
+
+## 八、部署上线（Render 单服务）
+
+`server/src/index.ts` 会自动托管 `web/dist`（存在时），因此推荐**一个 Web Service 托管全部内容**，同源部署无需处理跨域。
+
+1. 推送到 GitHub 仓库（本仓库已有 `origin`）。
+2. Render Dashboard → **New → Blueprint** → 选择本仓库（会自动读取根目录 [render.yaml](render.yaml)：`rootDir: .`，构建前端 + 后端，启动 `node server/dist/index.js`）。
+3. 在服务 Environment 中手动填入：`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`（零食模块不依赖它们，但点餐系统需要）。
+4. 部署完成后访问 `https://<服务名>.onrender.com`：`/` 为模块导航，`/app` 为点餐，`/snacks` 为零食模块；`/api/health` 应返回 `{"code":0,"data":"ok"}`。
+
+数据持久化注意：
+
+- Render 免费实例磁盘为**临时盘**，重新部署 / 实例重启后 `server/data` 与 `server/uploads` 会清空。
+- 需要长期保存：升级付费实例 → 挂载 Persistent Disk（如 `/var/data`，1GB 起）→ 在 Environment 设置 `DATA_DIR=/var/data`、`UPLOAD_DIR=/var/data/uploads`（`render.yaml` 内已有注释示例）。
+- 也可以用备份方案：定期下载 `server/data/snacks.json` 与 `uploads` 目录。
+
+备选部署方式：
+
+- 前端静态站点（Vercel / Render Static Site）+ 后端 Web Service：前端构建时设置 `VITE_API_BASE=https://<后端域名>/api`，后端 `CORS_ORIGIN` 填前端域名；但图片地址依赖后端 `/uploads`，需保证后端可公网访问。
+- 仅本地运行：`server` 下 `npm run build && npm start`（先 `web` 下 `npm run build`，由后端托管页面），浏览器打开 `http://localhost:3000`。
+

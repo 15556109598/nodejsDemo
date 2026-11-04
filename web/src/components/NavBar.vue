@@ -10,7 +10,7 @@ function onBack() {
   if (window.history.length > 1) {
     router.back()
   } else {
-    router.replace('/')
+    router.replace('/app')
   }
 }
 </script>

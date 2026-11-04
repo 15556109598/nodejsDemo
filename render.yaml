@@ -1,15 +1,18 @@
 # Render Blueprint 配置文件
 # 文档：https://render.com/docs/blueprint-spec
 # 使用：在 Render Dashboard -> New -> Blueprint -> 选择本仓库，会自动读取本文件
+#
+# 单服务部署：后端编译后同时托管前端静态产物（web/dist），
+# 入口页 / 模块导航、点餐系统 /app、零食模块 /snacks 与 /api 同源，无需额外配置 CORS。
 
 services:
   - type: web
-    name: xiaochu-order-server
+    name: xiaochu-modules
     runtime: node
     plan: free
-    rootDir: server
-    buildCommand: npm install && npm run build
-    startCommand: npm run start
+    rootDir: .
+    buildCommand: npm --prefix server install && npm --prefix server run build && npm --prefix web install --include=dev && npm --prefix web run build
+    startCommand: node server/dist/index.js
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
@@ -24,6 +27,12 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      # CORS 允许的前端域名，部署前端后填入 Vercel 地址
+      # 同源部署时保持 * 即可；若前端单独部署到其它域名，填入该域名
       - key: CORS_ORIGIN
-        sync: false
+        value: '*'
+      # 零食数据目录（JSON 与图片）。免费实例磁盘为临时盘，重启/重新部署会清空。
+      # 需要长期保存时：升级到付费实例 → 挂载 Persistent Disk（如 /var/data）→ 打开下面两行。
+      # - key: DATA_DIR
+      #   value: /var/data
+      # - key: UPLOAD_DIR
+      #   value: /var/data/uploads
