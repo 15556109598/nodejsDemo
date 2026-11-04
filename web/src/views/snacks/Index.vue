@@ -559,6 +559,7 @@ async function saveSettings() {
   padding: 0 16PX;
   font-size: 13PX;
   font-weight: 500;
+  line-height: 1.5;
   color: $danger-text;
   background: $surface;
   border: 1PX solid #f2d6d9;
@@ -635,7 +636,7 @@ async function saveSettings() {
   min-height: 44PX;
   padding: 0 14PX;
   font-size: 13PX;
-  line-height: 1;
+  line-height: 1.5;
   color: $ink-secondary;
   background: $surface;
   border: 1PX solid $line;
@@ -654,6 +655,7 @@ async function saveSettings() {
 
 .count {
   font-size: 12PX;
+  line-height: 1.5;
   color: $ink-muted;
 }
 

@@ -183,6 +183,7 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
 
 .section-count {
   font-size: 12PX;
+  line-height: 1.5;
   color: $ink-muted;
 }
 

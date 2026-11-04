@@ -276,6 +276,7 @@ const photoSrc = computed(() => resolveUploadUrl(props.item.photoUrl))
   min-height: 44PX;
   padding: 0 14PX;
   font-size: 12PX;
+  line-height: 1.5;
   color: $ink-secondary;
   background: $surface;
   border: 1PX solid $line;
