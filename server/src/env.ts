@@ -3,6 +3,14 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+// 口令配置容错：Render 面板粘贴时可能带上首尾空格/换行，这里统一 trim；
+// 若确实被 trim 过，启动时打印一条警告，便于排查「怎么输都不对」的问题。
+const couplePasscodeRaw = process.env.COUPLE_PASSCODE || '';
+const couplePasscode = couplePasscodeRaw.trim();
+if (couplePasscodeRaw && couplePasscodeRaw !== couplePasscode) {
+  console.warn('[env] COUPLE_PASSCODE 含首尾空白，已自动 trim；建议在 Render 重新粘贴口令');
+}
+
 export const env = {
   PORT: Number(process.env.PORT) || 3000,
   SUPABASE_URL: process.env.SUPABASE_URL || '',
@@ -14,7 +22,7 @@ export const env = {
   // 零食图片所在的 Supabase Storage 桶（公开读）
   SNACKS_BUCKET: process.env.SNACKS_BUCKET || 'snacks',
   // 情侣空间：访问口令（留空则模块公开可见，页面会提示未上锁）
-  COUPLE_PASSCODE: process.env.COUPLE_PASSCODE || '',
+  COUPLE_PASSCODE: couplePasscode,
   // 情侣空间：飞书机器人 webhook（可选，未配置时每日推送跳过）
   COUPLE_FEISHU_WEBHOOK: process.env.COUPLE_FEISHU_WEBHOOK || '',
   // 情侣空间：定时接口 /api/couple/daily 的密钥（未配置时该接口关闭）

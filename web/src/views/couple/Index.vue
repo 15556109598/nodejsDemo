@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 情侣空间：口令门 + 今日 / 纪念日 / 经期 三个分段 + 设置
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { CoupleApiError, coupleApi, type CoupleOverview, type CoupleSession } from '@/api/couple'
@@ -30,6 +30,42 @@ const settingsOpen = ref(false)
 const passcode = ref('')
 const unlocking = ref(false)
 const unlockError = ref('')
+// 429 冷却剩余秒数：由服务端 Retry-After 驱动，倒计时结束后按钮恢复可用
+const cooldownLeft = ref(0)
+let cooldownTimer: ReturnType<typeof setInterval> | null = null
+
+function formatWait(seconds: number): string {
+  const s = Math.max(1, Math.ceil(seconds))
+  if (s < 60) return `${s} 秒`
+  const minutes = Math.floor(s / 60)
+  const rest = s % 60
+  return rest ? `${minutes} 分 ${rest} 秒` : `${minutes} 分钟`
+}
+
+function stopCooldown(): void {
+  if (cooldownTimer) {
+    clearInterval(cooldownTimer)
+    cooldownTimer = null
+  }
+}
+
+function startCooldown(seconds: number): void {
+  stopCooldown()
+  cooldownLeft.value = Math.max(1, Math.ceil(seconds))
+  cooldownTimer = setInterval(() => {
+    cooldownLeft.value -= 1
+    if (cooldownLeft.value <= 0) {
+      cooldownLeft.value = 0
+      stopCooldown()
+    }
+  }, 1000)
+}
+
+const gateErrorText = computed(() =>
+  cooldownLeft.value > 0
+    ? `尝试次数过多，请等待 ${formatWait(cooldownLeft.value)}后再试`
+    : unlockError.value
+)
 
 const titleRef = ref<HTMLElement | null>(null)
 
@@ -91,7 +127,7 @@ async function init(): Promise<void> {
 }
 
 async function unlock(): Promise<void> {
-  if (unlocking.value) return
+  if (unlocking.value || cooldownLeft.value > 0) return
   unlockError.value = ''
   if (!passcode.value.trim()) {
     unlockError.value = '请输入口令'
@@ -101,12 +137,17 @@ async function unlock(): Promise<void> {
   try {
     await coupleApi.unlock(passcode.value.trim())
     passcode.value = ''
+    stopCooldown()
+    cooldownLeft.value = 0
     locked.value = false
     await loadOverview()
     await nextTick()
     titleRef.value?.focus()
   } catch (error) {
     unlockError.value = errorMessage(error)
+    if (error instanceof CoupleApiError && error.status === 429) {
+      startCooldown(error.retryAfter > 0 ? error.retryAfter : 300)
+    }
   } finally {
     unlocking.value = false
   }
@@ -118,6 +159,9 @@ async function lock(): Promise<void> {
     locked.value = true
     overview.value = null
     settingsOpen.value = false
+    stopCooldown()
+    cooldownLeft.value = 0
+    unlockError.value = ''
     showToast('已锁定')
     await nextTick()
     document.getElementById('couple-passcode')?.focus()
@@ -162,6 +206,7 @@ function goTab(key: TabKey): void {
 }
 
 onMounted(init)
+onUnmounted(stopCooldown)
 </script>
 
 <template>
@@ -198,6 +243,7 @@ onMounted(init)
         <div class="skeleton skeleton-block" />
         <div class="skeleton skeleton-line short" />
         <p class="loading-text">正在加载今天的数据…</p>
+        <p class="loading-hint">首次访问可能需要等待服务唤醒，约 30 秒</p>
       </div>
 
       <section v-else-if="locked" class="gate" aria-labelledby="couple-gate-title">
@@ -212,13 +258,21 @@ onMounted(init)
             type="password"
             inputmode="text"
             autocomplete="current-password"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            enterkeyhint="go"
             placeholder="请输入口令"
-            :aria-invalid="Boolean(unlockError)"
+            :aria-invalid="Boolean(gateErrorText)"
             aria-describedby="couple-passcode-error"
           />
-          <p v-if="unlockError" id="couple-passcode-error" class="field-error" role="alert">{{ unlockError }}</p>
-          <button type="submit" class="btn btn-primary btn-block" :disabled="unlocking">
-            {{ unlocking ? '验证中…' : '解锁' }}
+          <p v-if="gateErrorText" id="couple-passcode-error" class="field-error" role="alert">{{ gateErrorText }}</p>
+          <button
+            type="submit"
+            class="btn btn-primary btn-block"
+            :disabled="unlocking || cooldownLeft > 0"
+          >
+            {{ unlocking ? '验证中…' : cooldownLeft > 0 ? '请稍后再试' : '解锁' }}
           </button>
         </form>
         <p class="gate-note">口令不正确会被拒绝；本页不会把口令写入浏览器存储。</p>
@@ -405,6 +459,13 @@ onMounted(init)
   font-size: 13PX;
   line-height: 1.5;
   color: $ink-muted;
+}
+
+.loading-hint {
+  margin-top: 4PX;
+  font-size: 12PX;
+  line-height: 1.5;
+  color: $placeholder;
 }
 
 .skeleton {

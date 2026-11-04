@@ -6,18 +6,21 @@ import axios from 'axios'
 
 const client = axios.create({
   baseURL: import.meta.env.VITE_API_BASE,
-  timeout: 15000,
+  // Render 免费实例首次请求可能要 30-60 秒唤醒，这里放宽到 60 秒
+  timeout: 60000,
   // 口令保存在 httpOnly cookie，跨域开发时需携带
   withCredentials: true,
 })
 
 export class CoupleApiError extends Error {
   status: number
+  retryAfter: number
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, retryAfter = 0) {
     super(message)
     this.name = 'CoupleApiError'
     this.status = status
+    this.retryAfter = retryAfter
   }
 }
 
@@ -31,9 +34,10 @@ client.interceptors.response.use(
   },
   (error) => {
     const status: number = error.response?.status ?? 0
-    const message: string =
-      error.response?.data?.message || (status === 0 ? '网络异常，请检查连接后重试' : '请求失败，请稍后重试')
-    return Promise.reject(new CoupleApiError(message, status))
+    const retryAfter = Number(error.response?.headers?.['retry-after']) || 0
+    let message: string = error.response?.data?.message || '请求失败，请稍后重试'
+    if (status === 0) message = '网络异常或服务正在唤醒，请稍等 30 秒后重试'
+    return Promise.reject(new CoupleApiError(message, status, retryAfter))
   }
 )
 

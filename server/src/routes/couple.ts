@@ -131,14 +131,26 @@ function clientKey(req: Request): string {
   return forwarded || req.socket.remoteAddress || 'unknown';
 }
 
-function tooManyFailures(key: string): boolean {
+function failureWaitSeconds(key: string): number {
   const item = failures.get(key);
-  if (!item) return false;
-  if (Date.now() > item.resetAt) {
+  if (!item) return 0;
+  const remain = item.resetAt - Date.now();
+  if (remain <= 0) {
     failures.delete(key);
-    return false;
+    return 0;
   }
-  return item.count >= 6;
+  return item.count >= 6 ? Math.ceil(remain / 1000) : 0;
+}
+
+// 口令输入归一化：去掉首尾空白、全角空格与零宽字符，并把中文输入法打出的全角字母/数字转半角；
+// 大小写仍保持敏感，不做模糊匹配
+function normalizePasscode(value: unknown): string {
+  return String(value ?? '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\u3000/g, ' ')
+    .replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .trim();
 }
 
 function recordFailure(key: string): void {
@@ -294,11 +306,14 @@ router.post(
       return;
     }
     const key = clientKey(req);
-    if (tooManyFailures(key)) {
-      fail(res, 429, '尝试次数过多，请 5 分钟后再试');
+    const waitSeconds = failureWaitSeconds(key);
+    if (waitSeconds > 0) {
+      res.set('Retry-After', String(waitSeconds));
+      const waitText = waitSeconds < 60 ? `${waitSeconds} 秒` : `${Math.ceil(waitSeconds / 60)} 分钟`;
+      fail(res, 429, `尝试次数过多，请 ${waitText}后再试`);
       return;
     }
-    const input = String(req.body?.passcode ?? '').trim();
+    const input = normalizePasscode(req.body?.passcode);
     if (!input) {
       fail(res, 400, '请输入口令');
       return;
