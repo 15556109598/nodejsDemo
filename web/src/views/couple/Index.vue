@@ -1,22 +1,43 @@
 <script setup lang="ts">
-// 情侣空间：口令门 + 今日 / 纪念日 / 经期 三个分段 + 设置
+// 情侣空间：口令门 + 今日 / 纪念日 / 例假 / 打卡 四个分段 + 设置
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { CoupleApiError, clearLocalToken, coupleApi, currentDeviceToken, hasDeviceToken, type CoupleOverview, type CoupleSession } from '@/api/couple'
+import {
+  CoupleApiError,
+  clearLocalToken,
+  coupleApi,
+  currentDeviceToken,
+  hasDeviceToken,
+  type CoupleOverview,
+  type CoupleProfile,
+  type CoupleSession,
+} from '@/api/couple'
+import CoupleHeader from './components/CoupleHeader.vue'
 import TodayPanel from './components/TodayPanel.vue'
 import AnniversaryPanel from './components/AnniversaryPanel.vue'
 import CyclePanel from './components/CyclePanel.vue'
+import DailyPanel from './components/DailyPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 
 const router = useRouter()
 
-type TabKey = 'today' | 'anniversary' | 'cycle'
+type TabKey = 'today' | 'anniversary' | 'cycle' | 'daily'
+
+// 图标统一 1.6 描边、24 视口，避免 emoji 在不同系统上风格不一致
+const TAB_ICON: Record<TabKey, string> = {
+  today:
+    'M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6ZM12 2.6v2M12 19.4v2M2.6 12h2M19.4 12h2M5.4 5.4l1.4 1.4M17.2 17.2l1.4 1.4M18.6 5.4l-1.4 1.4M7.2 17.2l-1.4 1.4',
+  anniversary: 'M12 20.2S4.6 15.8 4.6 10.9A4.3 4.3 0 0 1 12 7.4a4.3 4.3 0 0 1 7.4 3.5c0 4.9-7.4 9.3-7.4 9.3Z',
+  cycle: 'M12 3.2c3.1 3.7 6.2 6.5 6.2 9.8a6.2 6.2 0 0 1-12.4 0c0-3.3 3.1-6.1 6.2-9.8Z',
+  daily: 'M12 3.8a8.2 8.2 0 1 0 0 16.4 8.2 8.2 0 0 0 0-16.4ZM7.8 12.4l2.8 2.8 5.6-5.8',
+}
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'today', label: '今日' },
   { key: 'anniversary', label: '纪念日' },
-  { key: 'cycle', label: '经期' },
+  { key: 'cycle', label: '例假' },
+  { key: 'daily', label: '打卡' },
 ]
 
 const loading = ref(true)
@@ -70,6 +91,8 @@ const gateErrorText = computed(() =>
 const titleRef = ref<HTMLElement | null>(null)
 
 const activeTab = computed(() => TABS.find((t) => t.key === tab.value) || TABS[0])
+const tabIndex = computed(() => Math.max(0, TABS.findIndex((item) => item.key === tab.value)))
+const indicatorStyle = computed(() => ({ transform: `translateX(${tabIndex.value * 100}%)` }))
 
 function errorMessage(error: unknown): string {
   if (error instanceof CoupleApiError) return error.message
@@ -192,6 +215,13 @@ async function onSettingsSaved(): Promise<void> {
   await loadOverview(true)
 }
 
+// 头像 / 状态更新：只替换对应位置，避免为了一个状态重新拉整页（含天气外部请求）
+function onProfileUpdated(profile: CoupleProfile): void {
+  if (!overview.value) return
+  const profiles = overview.value.profiles.map((item) => (item.slot === profile.slot ? profile : item))
+  overview.value = { ...overview.value, profiles }
+}
+
 async function refreshWeather(): Promise<void> {
   try {
     const weather = await coupleApi.weather()
@@ -256,7 +286,7 @@ onUnmounted(() => {
       </button>
       <div class="head-text">
         <h1 ref="titleRef" tabindex="-1">我们的空间</h1>
-        <p>纪念日、每日一句、天气与身体记录</p>
+        <p>纪念日、例假、每日一句与两个人的日常</p>
       </div>
       <button
         type="button"
@@ -328,6 +358,12 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <CoupleHeader
+          :profiles="overview.profiles"
+          :today="overview.today"
+          @updated="onProfileUpdated"
+        />
+
         <SettingsPanel
           v-show="settingsOpen"
           id="couple-settings"
@@ -339,6 +375,7 @@ onUnmounted(() => {
         />
 
         <div class="tabs" role="tablist" aria-label="情侣空间分区">
+          <span class="tab-indicator" aria-hidden="true" :style="indicatorStyle" />
           <button
             v-for="(item, index) in TABS"
             :key="item.key"
@@ -353,7 +390,16 @@ onUnmounted(() => {
             @click="tab = item.key"
             @keydown="onTabKeydown($event, index)"
           >
-            {{ item.label }}
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                :d="TAB_ICON[item.key]"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span class="tab-label">{{ item.label }}</span>
           </button>
         </div>
 
@@ -395,6 +441,22 @@ onUnmounted(() => {
             :prediction="overview.cycle.prediction"
             :today="overview.today"
             @changed="onQuoteChanged"
+          />
+        </section>
+
+        <section
+          v-show="tab === 'daily'"
+          id="couple-panel-daily"
+          role="tabpanel"
+          aria-labelledby="couple-tab-daily"
+          class="panel"
+        >
+          <DailyPanel
+            :checkin="overview.checkin"
+            :todos="overview.todos"
+            :wishes="overview.wishes"
+            :profiles="overview.profiles"
+            :today="overview.today"
           />
         </section>
 
@@ -668,31 +730,66 @@ onUnmounted(() => {
 }
 
 .tabs {
+  position: relative;
   display: flex;
-  gap: 8PX;
   padding: 4PX;
   margin-bottom: 12PX;
   background: $surface;
   border: 1PX solid $line;
+  border-radius: 16PX;
+}
+
+.tab-indicator {
+  position: absolute;
+  top: 4PX;
+  bottom: 4PX;
+  left: 4PX;
+  width: calc((100% - 8PX) / 4);
+  background: $accent-soft;
+  border: 1PX solid $accent-line;
   border-radius: 12PX;
+  pointer-events: none;
+  transition: transform 180ms $ease-standard;
 }
 
 .tab-button {
+  position: relative;
+  z-index: 1;
   flex: 1;
-  min-height: 44PX;
-  font-size: 14PX;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2PX;
+  min-height: 56PX;
+  font-size: 13PX;
   font-weight: 500;
-  color: $ink-secondary;
+  color: $ink-muted;
   background: transparent;
   border: none;
-  border-radius: 8PX;
+  border-radius: 12PX;
   cursor: pointer;
-  transition: background $motion-fast $ease-standard, color $motion-fast $ease-standard;
+  transition: color $motion-fast $ease-standard;
 
   &.active {
-    color: #fff;
-    background: $brand-action;
+    color: $ink;
+    font-weight: 600;
   }
+
+  &:focus-visible {
+    outline: 2PX solid $brand-action;
+    outline-offset: -2PX;
+  }
+}
+
+.tab-icon {
+  width: 18PX;
+  height: 18PX;
+}
+
+.tab-label {
+  font-size: 13PX;
+  line-height: 1.3;
 }
 
 .panel:focus-visible {

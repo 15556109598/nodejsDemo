@@ -11,6 +11,7 @@ import {
   type CoupleQuote,
   type CoupleSettings,
   type CycleRecord,
+  type QuoteOverride,
   type WeatherDay,
   type WeatherInfo,
 } from './couple-logic';
@@ -237,6 +238,46 @@ export async function removeQuote(id: string): Promise<boolean> {
   const { data, error } = await adminClient.from(QUOTE_TABLE).delete().eq('id', id).select('id').maybeSingle();
   if (error) raise(error);
   return Boolean(data);
+}
+
+// ---------- 今日指定的一句 ----------
+// 存在 couple_settings（key = couple_quote_override），值为 { date, content, source }；
+// 只认 date === 今天，次日自动失效回到日期轮换。
+
+const QUOTE_OVERRIDE_KEY = 'couple_quote_override';
+
+export async function getQuoteOverride(today: string): Promise<QuoteOverride | null> {
+  const { data, error } = await adminClient
+    .from(SETTINGS_TABLE)
+    .select('value')
+    .eq('key', QUOTE_OVERRIDE_KEY)
+    .maybeSingle();
+  if (error) raise(error);
+  const value = data?.value as Record<string, unknown> | null | undefined;
+  if (!value) return null;
+  const date = String(value.date || '');
+  const content = String(value.content || '').trim();
+  const source = value.source === 'custom' ? 'custom' : 'builtin';
+  if (!content || date !== today) return null;
+  return { date, content, source };
+}
+
+export async function saveQuoteOverride(
+  today: string,
+  content: string,
+  source: 'builtin' | 'custom'
+): Promise<QuoteOverride> {
+  const value: QuoteOverride = { date: today, content, source };
+  const { error } = await adminClient
+    .from(SETTINGS_TABLE)
+    .upsert({ key: QUOTE_OVERRIDE_KEY, value, updated_at: new Date().toISOString() });
+  if (error) raise(error);
+  return value;
+}
+
+export async function clearQuoteOverride(): Promise<void> {
+  const { error } = await adminClient.from(SETTINGS_TABLE).delete().eq('key', QUOTE_OVERRIDE_KEY);
+  if (error) raise(error);
 }
 
 // ---------- 设置 ----------

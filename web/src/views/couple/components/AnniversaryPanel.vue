@@ -9,6 +9,7 @@ import {
   type CoupleAnniversary,
 } from '@/api/couple'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import DateField from './DateField.vue'
 
 const props = defineProps<{
   items: CoupleAnniversary[]
@@ -192,10 +193,10 @@ function dateLabel(value: string): string {
         />
       </label>
 
-      <label class="field">
+      <div class="field">
         <span class="field-label">日期</span>
-        <input v-model="date" class="input" type="date" required />
-      </label>
+        <DateField v-model="date" label="纪念日日期" title="选择纪念日日期" />
+      </div>
 
       <label class="field">
         <span class="field-label">图标（可选，最多 4 个字符）</span>

@@ -129,7 +129,7 @@ async function save(): Promise<void> {
     return
   }
   if (!inRange(cycleAheadDays.value, 0, 14)) {
-    errorMessageText.value = '经期提前提醒需在 0 ~ 14 天之间'
+    errorMessageText.value = '例假提前提醒需在 0 ~ 14 天之间'
     return
   }
   if (!inRange(cycleDelayDays.value, 1, 15)) {
@@ -193,14 +193,14 @@ async function save(): Promise<void> {
           <input v-model="nearAnniversaryDays" class="input" type="number" min="1" max="30" inputmode="numeric" />
         </label>
         <label class="field">
-          <span class="field-label">经期提前提醒（天）</span>
+          <span class="field-label">例假提前提醒（天）</span>
           <input v-model="cycleAheadDays" class="input" type="number" min="0" max="14" inputmode="numeric" />
         </label>
       </div>
 
       <div class="field-row">
         <label class="field">
-          <span class="field-label">经期推迟提醒（天）</span>
+          <span class="field-label">例假推迟提醒（天）</span>
           <input v-model="cycleDelayDays" class="input" type="number" min="1" max="15" inputmode="numeric" />
         </label>
         <label class="field">

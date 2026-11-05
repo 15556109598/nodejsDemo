@@ -56,7 +56,7 @@ export const APP_MODULES: AppModule[] = [
   {
     id: 'couple',
     name: '我们的空间',
-    description: '纪念日、每日一句、天气与经期记录',
+    description: '纪念日、每日一句、例假与两个人的日常',
     icon: '💗',
     path: '/couple',
     status: 'available',

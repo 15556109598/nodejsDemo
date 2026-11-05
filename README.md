@@ -194,8 +194,8 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 
 ## 九、情侣空间模块（`/couple`）
 
-- 页面：`/couple`（入口页第三张卡片「我们的空间」），含纪念日、每日一句、天气、经期记录与预测、提醒、今日摘要、设置。
-- 数据：Supabase Postgres 四张表 `couple_anniversaries` / `couple_cycle_records` / `couple_quotes` / `couple_settings`，均开启 RLS 且无匿名策略，仅服务端 service_role 可读写。
+- 页面：`/couple`（入口页第三张卡片「我们的空间」），含双人头像与状态、纪念日、每日一句（换一句/指定）、天气、例假记录与预测、提醒、今日摘要、每日打卡、一起做的事、小约定、设置。
+- 数据：Supabase Postgres 四张表 `couple_anniversaries` / `couple_cycle_records` / `couple_quotes` / `couple_settings`，均开启 RLS 且无匿名策略，仅服务端 service_role 可读写。v2 新增的头像档案/打卡/清单/小约定复用 `couple_settings` 的 JSON key（`couple_profiles` / `couple_checkins` / `couple_todos` / `couple_wishes`），无需新增表或额外 SQL；头像文件存于 Storage 桶 `couple-avatars`，首次上传时由服务端自动创建（public 读）。
 - 隐私门：设置 `COUPLE_PASSCODE` 后，前端输入口令 → 服务端校验 → 下发 90 天有效的 httpOnly cookie（HMAC 值，不含明文口令）；除 `/session`、`/auth`、`/daily` 外的接口都校验该 cookie。未设置口令时模块公开可见，页面顶部有醒目警示。
 - 移动端兼容凭证：部分手机浏览器（Safari「阻止所有 Cookie」、无痕模式、微信内置浏览器）拒绝保存 Cookie，表现为「输入口令后页面回到口令页、输入框被清空」。为兼容这类环境，`POST /api/couple/auth` 会额外返回一个 HMAC-SHA256 签名的 token（payload 仅含版本号与过期时间，签名密钥由 `COUPLE_PASSCODE` 派生，不含口令明文），前端存入 `localStorage` 并以 `Authorization: Bearer <token>` 携带；服务端校验顺序为 **Cookie 有效 → 通过，否则校验 Bearer token**。有效期与 Cookie 一致（90 天），过期或被篡改返回 401。
   - **安全说明**：`localStorage` 在 XSS 下可被脚本读取，风险高于 `HttpOnly` Cookie，因此仅作为移动端兼容的补充路径，Cookie 始终优先；页面「设置 → 锁定」会同时清除 Cookie 与本地凭证。服务端无状态，旧 token 在过期前仍可重放（风险等价于 Cookie 被复制），如需强制失效可更换 `COUPLE_PASSCODE`。
@@ -203,7 +203,7 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
   - **风险**：设备链接等同于钥匙，泄露即可访问，请勿外发；手机丢失时在设置页吊销。令牌保存在地址栏，浏览器历史与截图可能包含它。
   - **桌面图标指向**：全局 manifest 的 `start_url` 是 `/`，部分系统会把图标指向入口页而丢失 `?device=`。`/couple` 页面会把 `link[rel=manifest]` 切到 `GET /api/couple/manifest`，其 `start_url` 固定为 `/couple`；带有效设备令牌时 `start_url` 为 `/couple?device=<token>`，因此从桌面图标启动可直接进入。下次打开普通入口（不带 `device`）时图标仍按当前地址走。
 - 天气：Open-Meteo（免密钥），默认南京 · 雨花台 **31.9957, 118.7635**；接口失败时返回降级提示，不影响页面其他内容。坐标可在页面「设置」里修改。
-- 经期预测：至少 3 次记录（2 个周期间隔）才给出预测，否则提示「样本不足」；结果仅供参考，不构成医疗建议。
+- 例假预测：至少 3 次记录（2 个周期间隔）才给出预测，否则提示「样本不足」；结果仅供参考，不构成医疗建议。
 
 ### 9.1 迁移与配置（必须执行一次）
 
@@ -229,12 +229,23 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 | POST | `/api/couple/device-link` | 生成设备链接（需已登录），只返回 URL 与设备信息，服务端仅存令牌哈希 |
 | GET | `/api/couple/devices` | 设备列表（不含令牌哈希） |
 | DELETE | `/api/couple/devices/:id` | 吊销设备（立即失效） |
-| GET | `/api/couple/overview` | 纪念日 + 每日一句 + 天气 + 经期统计/预测 + 提醒 + 今日摘要 + 设置 |
+| GET | `/api/couple/overview` | 纪念日 + 每日一句 + 天气 + 例假统计/预测 + 提醒 + 今日摘要 + 设置 + 档案/打卡/清单/小约定 |
 | GET | `/api/couple/weather` | 单独刷新天气（失败时 `available:false`，HTTP 仍为 200） |
 | POST / PUT / DELETE | `/api/couple/anniversaries[/:id]` | 纪念日新增/编辑/删除 |
-| POST / PUT / DELETE | `/api/couple/cycles[/:id]` | 经期记录新增/编辑/删除 |
+| POST / PUT / DELETE | `/api/couple/cycles[/:id]` | 例假记录新增/编辑/删除 |
 | POST / DELETE | `/api/couple/quotes[/:id]` | 自定义句子新增/删除 |
 | PUT | `/api/couple/settings` | 保存城市/坐标/提醒阈值 |
+| PUT | `/api/couple/profiles/:slot` | 保存名字/状态（slot 1 或 2） |
+| POST / DELETE | `/api/couple/profiles/:slot/avatar` | 上传（JPG/PNG/WEBP，≤2MB，魔数校验）或删除头像 |
+| GET / POST | `/api/couple/checkins` | 打卡汇总（连续天数/最近 28 天）或打卡（body `{slot}`，幂等） |
+| DELETE | `/api/couple/checkins/today/:slot` | 撤销今天该人的打卡 |
+| GET / POST | `/api/couple/todos` | 一起做的事列表 / 新增（body `{title}`） |
+| PUT / DELETE | `/api/couple/todos/:id` | 勾选完成（body `{done}`） / 删除 |
+| GET / POST | `/api/couple/wishes` | 小约定列表 / 发起（body `{content, fromSlot}`） |
+| POST / DELETE | `/api/couple/wishes/:id[/respond]` | 另一方回应（body `{status: accepted\|declined}`） / 删除 |
+| GET | `/api/couple/quote/pool` | 内置 + 自定义句库与今日句子 |
+| GET | `/api/couple/quote/random?exclude=…` | 随机换一句，池内无更多时返回 409 |
+| PUT / DELETE | `/api/couple/quote/today` | 指定今天的句子 / 恢复每日轮换 |
 | POST | `/api/couple/daily` | 定时推送，需请求头 `x-cron-secret`；未配 webhook 时返回 `sent:false` |
 
 ### 9.3 每日推送（可选）

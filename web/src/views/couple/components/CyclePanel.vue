@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 经期面板：状态 / 统计 / 趋势图 / 记录增删改 / 免责说明
+// 例假面板：状态 / 统计 / 趋势图 / 记录增删改 / 免责说明
 import { computed, nextTick, ref } from 'vue'
 import { showToast } from 'vant'
 import {
@@ -11,6 +11,7 @@ import {
   type CycleStats,
 } from '@/api/couple'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import DateField from './DateField.vue'
 
 const props = defineProps<{
   records: CycleRecord[]
@@ -31,7 +32,13 @@ const note = ref('')
 const submitting = ref(false)
 const formError = ref('')
 const formRef = ref<HTMLElement | null>(null)
-const startInput = ref<HTMLInputElement | null>(null)
+
+function focusFirstField(): void {
+  nextTick(() => {
+    const trigger = formRef.value?.querySelector('.date-field__trigger') as HTMLElement | null
+    trigger?.focus()
+  })
+}
 
 const confirmVisible = ref(false)
 const confirmTarget = ref<CycleRecord | null>(null)
@@ -53,6 +60,18 @@ const statusClass = computed(() => {
   if (props.prediction.status === 'overdue') return 'status-warn'
   if (props.prediction.status === 'period') return 'status-period'
   return 'status-normal'
+})
+
+// 日期选择范围：例假记录限制在 2000 年之后、不晚于今天
+const cycleMinDate = new Date(2000, 0, 1)
+const todayDate = computed(() => {
+  const [year, month, day] = props.today.split('-').map(Number)
+  return new Date(year, (month || 1) - 1, day || 1)
+})
+const startMinDate = computed(() => {
+  const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDate.value)
+  if (!matched) return cycleMinDate
+  return new Date(Number(matched[1]), Number(matched[2]) - 1, Number(matched[3]))
 })
 
 function errorMessage(error: unknown): string {
@@ -80,7 +99,7 @@ function openCreate(): void {
   note.value = ''
   formError.value = ''
   formOpen.value = true
-  nextTick(() => startInput.value?.focus())
+  focusFirstField()
 }
 
 function openEdit(record: CycleRecord): void {
@@ -92,7 +111,7 @@ function openEdit(record: CycleRecord): void {
   formOpen.value = true
   nextTick(() => {
     formRef.value?.scrollIntoView({ block: 'start' })
-    startInput.value?.focus()
+    focusFirstField()
   })
 }
 
@@ -159,7 +178,7 @@ async function remove(): Promise<void> {
 <template>
   <div class="cycle">
     <section class="status-card" :class="statusClass" aria-labelledby="couple-cycle-status-title">
-      <h2 id="couple-cycle-status-title" class="sr-only">经期状态</h2>
+      <h2 id="couple-cycle-status-title" class="sr-only">例假状态</h2>
       <p class="status-eyebrow">当前状态</p>
       <p class="status-text">{{ prediction.statusText }}</p>
       <p v-if="prediction.nextStart" class="status-next">预计下次开始：{{ prediction.nextStart }}</p>
@@ -173,7 +192,7 @@ async function remove(): Promise<void> {
         <p class="stat-value">{{ stats.averageCycle !== null ? `${stats.averageCycle} 天` : '—' }}</p>
       </div>
       <div class="stat">
-        <p class="stat-label">平均经期</p>
+        <p class="stat-label">平均天数</p>
         <p class="stat-value">{{ stats.averagePeriod !== null ? `${stats.averagePeriod} 天` : '—' }}</p>
       </div>
       <div class="stat">
@@ -212,8 +231,8 @@ async function remove(): Promise<void> {
 
     <div class="panel-head">
       <div>
-        <h2>经期记录</h2>
-        <p>记录开始与结束日期，用于计算平均周期</p>
+        <h2>例假记录</h2>
+        <p>记录例假的开始与结束日期，用来估算周期</p>
       </div>
       <button type="button" class="btn btn-primary" :aria-expanded="formOpen" @click="openCreate">
         记录
@@ -222,15 +241,27 @@ async function remove(): Promise<void> {
 
     <form v-if="formOpen" ref="formRef" class="form-card" @submit.prevent="submit">
       <h3>{{ editingId ? '编辑记录' : '新增记录' }}</h3>
-      <div class="field-row">
-        <label class="field">
-          <span class="field-label">开始日期</span>
-          <input ref="startInput" v-model="startDate" class="input" type="date" required />
-        </label>
-        <label class="field">
-          <span class="field-label">结束日期（可选）</span>
-          <input v-model="endDate" class="input" type="date" />
-        </label>
+      <div class="field">
+        <span class="field-label">开始日期</span>
+        <DateField
+          v-model="startDate"
+          label="例假开始日期"
+          title="选择开始日期"
+          :min-date="cycleMinDate"
+          :max-date="todayDate"
+        />
+      </div>
+      <div class="field">
+        <span class="field-label">结束日期（可选）</span>
+        <DateField
+          v-model="endDate"
+          label="例假结束日期"
+          title="选择结束日期"
+          placeholder="还没结束可以不填"
+          :min-date="startMinDate"
+          :max-date="todayDate"
+          clearable
+        />
       </div>
       <label class="field">
         <span class="field-label">备注（可选）</span>
@@ -262,7 +293,7 @@ async function remove(): Promise<void> {
       </li>
     </ul>
 
-    <p v-else-if="!formOpen" class="empty-line">还没有记录，点「记录」添加第一次。</p>
+    <p v-else-if="!formOpen" class="empty-line">还没有例假记录，点「记录」添加第一次。</p>
 
     <section class="tips" aria-labelledby="couple-tips-title">
       <h2 id="couple-tips-title">日常照顾</h2>
@@ -276,7 +307,7 @@ async function remove(): Promise<void> {
 
     <ConfirmDialog
       v-model:show="confirmVisible"
-      title="删除记录？"
+      title="删除例假记录？"
       :message="confirmTarget ? `确定删除 ${confirmTarget.startDate} 开始的记录吗？` : ''"
       confirm-text="删除"
       danger
@@ -506,16 +537,6 @@ async function remove(): Promise<void> {
     line-height: 1.25;
     color: $ink;
     margin-bottom: 12PX;
-  }
-}
-
-.field-row {
-  display: flex;
-  gap: 8PX;
-
-  .field {
-    flex: 1;
-    min-width: 0;
   }
 }
 

@@ -255,7 +255,7 @@ export function predictCycle(
     const currentDay = fromLastStart + 1;
     return {
       status: 'period',
-      statusText: `当前为经期第 ${currentDay} 天`,
+      statusText: `当前为例假第 ${currentDay} 天`,
       currentDay,
       nextStart: addDays(last.startDate, stats.averageCycle),
       daysUntilNext: dayDiff(today, addDays(last.startDate, stats.averageCycle)),
@@ -270,7 +270,7 @@ export function predictCycle(
     const overdueDays = -daysUntilNext;
     return {
       status: 'overdue',
-      statusText: `预计经期已推迟 ${overdueDays} 天`,
+      statusText: `例假预计已推迟 ${overdueDays} 天`,
       currentDay: null,
       nextStart,
       daysUntilNext,
@@ -281,7 +281,7 @@ export function predictCycle(
   if (daysUntilNext === 0) {
     return {
       status: 'upcoming',
-      statusText: '预计今天开始，注意提前准备',
+      statusText: '预计今天开始例假，注意提前准备',
       currentDay: null,
       nextStart,
       daysUntilNext,
@@ -292,7 +292,7 @@ export function predictCycle(
   const upcoming = daysUntilNext <= Math.max(0, settings.cycleAheadDays);
   return {
     status: upcoming ? 'upcoming' : 'normal',
-    statusText: `预计下次经期还有 ${daysUntilNext} 天`,
+    statusText: `预计下次例假还有 ${daysUntilNext} 天`,
     currentDay: null,
     nextStart,
     daysUntilNext,
@@ -353,6 +353,155 @@ export function pickDailyQuote(
     isCustom: index >= BUILTIN_QUOTES.length,
     index,
   };
+}
+
+// ---------- 每日一句：今日指定 + 随机切换 ----------
+
+export interface QuoteOverride {
+  // 仅当 date 等于今天时生效，次日自动回到日期轮换
+  date: string;
+  content: string;
+  source: 'builtin' | 'custom';
+}
+
+export interface DailyQuote {
+  content: string;
+  isCustom: boolean;
+  index: number;
+  // 是否为「今天手动指定」的句子
+  override: boolean;
+}
+
+export function resolveDailyQuote(
+  today: string,
+  custom: string[] = [],
+  override: QuoteOverride | null = null
+): DailyQuote {
+  if (override && override.date === today && override.content.trim()) {
+    const content = override.content.trim();
+    const customList = custom.map((s) => s.trim()).filter(Boolean);
+    return {
+      content,
+      isCustom: override.source === 'custom' || customList.includes(content),
+      index: -1,
+      override: true,
+    };
+  }
+  const picked = pickDailyQuote(today, custom);
+  return { ...picked, override: false };
+}
+
+// 随机取一条不在 exclude 里的句子；池里没有更多时返回 null（前端提示已换完）
+export function pickRandomQuote(pool: string[], exclude: string[] = []): string | null {
+  const normalized = pool.map((s) => s.trim()).filter(Boolean);
+  const blocked = new Set(exclude.map((s) => s.trim()));
+  const candidates = normalized.filter((s) => !blocked.has(s));
+  if (!candidates.length) return null;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+// ---------- 打卡 ----------
+
+export interface CheckinRow {
+  // YYYY-MM-DD
+  day: string;
+  slot: number;
+  createdAt?: string | null;
+}
+
+export interface CheckinSlotState {
+  slot: 1 | 2;
+  done: boolean;
+  // 今天的打卡时间（ISO 字符串，由前端按本地时区展示）；未打卡为 null
+  time: string | null;
+}
+
+export interface CheckinDay {
+  date: string;
+  // 0 = 都没打；1 = 只有一方；2 = 双方都打了
+  count: number;
+}
+
+export interface CheckinSummary {
+  today: string;
+  slots: CheckinSlotState[];
+  // 双方连续打卡天数：今天双方都打卡则算到「今天」；
+  // 今天还没打齐但昨天打齐了，连续记录仍算有效（显示为到昨天为止的天数）。
+  currentStreak: number;
+  // 历史上最长的一次连续
+  bestStreak: number;
+  // 最近 windowDays 天（升序），用于日历小格
+  days: CheckinDay[];
+}
+
+export function computeCheckinSummary(
+  rows: CheckinRow[],
+  today: string,
+  windowDays = 28
+): CheckinSummary {
+  const byDay = new Map<string, Set<number>>();
+  for (const row of rows) {
+    const day = String(row.day).slice(0, 10);
+    if (!isValidDay(day)) continue;
+    const slot = Number(row.slot);
+    if (slot !== 1 && slot !== 2) continue;
+    const set = byDay.get(day) || new Set<number>();
+    set.add(slot);
+    byDay.set(day, set);
+  }
+
+  const both = (day: string): boolean => {
+    const set = byDay.get(day);
+    return Boolean(set && set.has(1) && set.has(2));
+  };
+
+  // 连续天数：从今天（或昨天）往回数，遇到断签即停
+  let currentStreak = 0;
+  let cursor = today;
+  if (!both(today)) {
+    const yesterday = addDays(today, -1);
+    if (!both(yesterday)) {
+      currentStreak = 0;
+    } else {
+      cursor = yesterday;
+    }
+  }
+  if (currentStreak === 0 && (both(today) || both(cursor))) {
+    while (both(cursor)) {
+      currentStreak += 1;
+      cursor = addDays(cursor, -1);
+    }
+  }
+
+  // 历史最长连续
+  const bothDays = Array.from(byDay.entries())
+    .filter(([, set]) => set.has(1) && set.has(2))
+    .map(([day]) => day)
+    .sort();
+  let bestStreak = 0;
+  let run = 0;
+  let prev: string | null = null;
+  for (const day of bothDays) {
+    if (prev && dayDiff(prev, day) === 1) run += 1;
+    else run = 1;
+    if (run > bestStreak) bestStreak = run;
+    prev = day;
+  }
+
+  const days: CheckinDay[] = [];
+  for (let i = windowDays - 1; i >= 0; i -= 1) {
+    const date = addDays(today, -i);
+    days.push({ date, count: byDay.get(date)?.size || 0 });
+  }
+
+  const slots = ([1, 2] as const).map((slot) => {
+    const row = rows.find(
+      (item) => String(item.day).slice(0, 10) === today && Number(item.slot) === slot
+    );
+    return { slot, done: Boolean(row), time: row?.createdAt || null };
+  });
+
+  return { today, slots, currentStreak, bestStreak, days };
 }
 
 // ---------- 天气建议 ----------
@@ -462,6 +611,8 @@ export interface Reminder {
   id: string;
   kind: ReminderKind;
   level: ReminderLevel;
+  // 来源标签（展示层用「纪念日 / 例假 / 天气」直白说明）
+  sourceLabel: string;
   title: string;
   detail: string;
 }
@@ -485,6 +636,7 @@ export function buildReminders(input: ReminderInput): Reminder[] {
         id: `ann-${item.id}`,
         kind: 'anniversary',
         level: 'info',
+        sourceLabel: '纪念日',
         title:
           view.daysUntilNext === 0
             ? `今天是「${item.title}」`
@@ -499,10 +651,11 @@ export function buildReminders(input: ReminderInput): Reminder[] {
       id: 'cycle-upcoming',
       kind: 'cycle',
       level: 'info',
+      sourceLabel: '例假',
       title:
         prediction.daysUntilNext === 0
-          ? '预计今天开始经期'
-          : `经期预计还有 ${prediction.daysUntilNext} 天`,
+          ? '今天大概会来例假'
+          : `再过 ${prediction.daysUntilNext} 天可能来例假`,
       detail: '可以提前准备好需要的物品，注意休息',
     });
   }
@@ -516,7 +669,8 @@ export function buildReminders(input: ReminderInput): Reminder[] {
       id: 'cycle-delay',
       kind: 'cycle',
       level: 'warn',
-      title: `经期预计已推迟 ${prediction.overdueDays} 天`,
+      sourceLabel: '例假',
+      title: `例假已推迟 ${prediction.overdueDays} 天`,
       detail: '预测基于历史记录，若明显异常或不适请咨询专业医生',
     });
   }
@@ -531,6 +685,7 @@ export function buildReminders(input: ReminderInput): Reminder[] {
           id: 'weather-drop',
           kind: 'weather',
           level: 'warn',
+          sourceLabel: '天气',
           title: `明天降温 ${diff}℃`,
           detail: `今天最高 ${todayMax}℃，明天最高 ${tomorrowMax}℃，记得加外套`,
         });

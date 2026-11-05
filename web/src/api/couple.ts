@@ -243,6 +243,8 @@ export interface Reminder {
   id: string
   kind: 'anniversary' | 'cycle' | 'weather'
   level: 'info' | 'warn'
+  // 来源标签：纪念日 / 例假 / 天气
+  sourceLabel: string
   title: string
   detail: string
 }
@@ -260,12 +262,75 @@ export interface DailySummary {
   text: string
 }
 
+export interface DailyQuoteState {
+  content: string
+  isCustom: boolean
+  index: number
+  // 今天是否被手动「换一句 / 指定」覆盖（次日自动恢复轮换）
+  override: boolean
+}
+
+export interface CoupleProfile {
+  slot: 1 | 2
+  displayName: string
+  avatarUrl: string
+  statusText: string
+  statusPreset: string
+  statusUpdatedAt: string | null
+}
+
+export interface CheckinSlotState {
+  slot: 1 | 2
+  done: boolean
+  time: string | null
+}
+
+export interface CheckinDay {
+  date: string
+  count: number
+}
+
+export interface CheckinSummary {
+  today: string
+  slots: CheckinSlotState[]
+  currentStreak: number
+  bestStreak: number
+  days: CheckinDay[]
+}
+
+export interface CoupleTodo {
+  id: string
+  title: string
+  done: boolean
+  doneAt: string | null
+  createdAt: string
+}
+
+export type WishStatus = 'open' | 'accepted' | 'declined'
+
+export interface CoupleWish {
+  id: string
+  content: string
+  fromSlot: 1 | 2
+  status: WishStatus
+  respondedSlot: 1 | 2 | null
+  respondedAt: string | null
+  createdAt: string
+}
+
+export interface CoupleQuotePool {
+  builtin: string[]
+  custom: CoupleQuote[]
+  today: string
+  quote: DailyQuoteState
+}
+
 export interface CoupleOverview {
   today: string
   passcodeSet: boolean
   settings: CoupleSettings
   anniversaries: CoupleAnniversary[]
-  quote: { content: string; isCustom: boolean; index: number }
+  quote: DailyQuoteState
   weather: WeatherInfo
   cycle: {
     records: CycleRecord[]
@@ -275,6 +340,10 @@ export interface CoupleOverview {
   reminders: Reminder[]
   summary: DailySummary
   customQuotes: CoupleQuote[]
+  profiles: CoupleProfile[]
+  checkin: CheckinSummary
+  todos: CoupleTodo[]
+  wishes: CoupleWish[]
 }
 
 export interface CoupleDevice {
@@ -336,6 +405,60 @@ export const coupleApi = {
   },
   saveSettings(data: Partial<CoupleSettings>) {
     return http<CoupleSettings>({ url: '/couple/settings', method: 'PUT', data })
+  },
+  updateProfile(slot: 1 | 2, data: { displayName?: string; statusText?: string; statusPreset?: string }) {
+    return http<{ profile: CoupleProfile }>({ url: `/couple/profiles/${slot}`, method: 'PUT', data })
+  },
+  uploadAvatar(slot: 1 | 2, blob: Blob) {
+    return http<{ profile: CoupleProfile }>({
+      url: `/couple/profiles/${slot}/avatar`,
+      method: 'POST',
+      data: blob,
+      headers: { 'Content-Type': blob.type || 'image/jpeg' },
+    })
+  },
+  removeAvatar(slot: 1 | 2) {
+    return http<{ profile: CoupleProfile }>({ url: `/couple/profiles/${slot}/avatar`, method: 'DELETE' })
+  },
+  checkin(slot: 1 | 2) {
+    return http<CheckinSummary>({ url: '/couple/checkins', method: 'POST', data: { slot } })
+  },
+  undoCheckin(slot: 1 | 2) {
+    return http<CheckinSummary>({ url: `/couple/checkins/today/${slot}`, method: 'DELETE' })
+  },
+  addTodo(title: string) {
+    return http<{ todo: CoupleTodo }>({ url: '/couple/todos', method: 'POST', data: { title } })
+  },
+  setTodoDone(id: string, done: boolean) {
+    return http<{ todo: CoupleTodo }>({ url: `/couple/todos/${id}`, method: 'PUT', data: { done } })
+  },
+  removeTodo(id: string) {
+    return http<{ removed: boolean }>({ url: `/couple/todos/${id}`, method: 'DELETE' })
+  },
+  addWish(content: string, fromSlot: 1 | 2) {
+    return http<{ wish: CoupleWish }>({ url: '/couple/wishes', method: 'POST', data: { content, fromSlot } })
+  },
+  respondWish(id: string, status: 'accepted' | 'declined') {
+    return http<{ wish: CoupleWish }>({ url: `/couple/wishes/${id}/respond`, method: 'POST', data: { status } })
+  },
+  removeWish(id: string) {
+    return http<{ removed: boolean }>({ url: `/couple/wishes/${id}`, method: 'DELETE' })
+  },
+  quotePool() {
+    return http<CoupleQuotePool>({ url: '/couple/quote/pool', method: 'GET' })
+  },
+  randomQuote(exclude: string[]) {
+    const query = exclude.map((item) => `exclude=${encodeURIComponent(item)}`).join('&')
+    return http<{ content: string; isCustom: boolean }>({
+      url: `/couple/quote/random${query ? `?${query}` : ''}`,
+      method: 'GET',
+    })
+  },
+  setTodayQuote(content: string) {
+    return http<{ quote: DailyQuoteState }>({ url: '/couple/quote/today', method: 'PUT', data: { content } })
+  },
+  resetTodayQuote() {
+    return http<{ quote: DailyQuoteState }>({ url: '/couple/quote/today', method: 'DELETE' })
   },
   createDeviceLink(label: string) {
     return http<{ device: CoupleDevice; url: string }>({

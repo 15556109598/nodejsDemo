@@ -3,14 +3,14 @@
 // POST /api/couple/auth          口令换 httpOnly cookie（90 天）
 // GET  /api/couple/session       口令是否已配置 + 当前是否解锁
 // POST /api/couple/lock          清除 cookie
-// GET  /api/couple/overview      今日全部数据（纪念日/每日一句/天气/经期/提醒/摘要/设置）
+// GET  /api/couple/overview      今日全部数据（纪念日/每日一句/天气/例假/提醒/摘要/设置/头像/打卡/清单/心愿）
 // GET  /api/couple/weather       单独刷新天气（失败降级，不抛 5xx）
 // POST /api/couple/anniversaries       新增纪念日
 // PUT  /api/couple/anniversaries/:id   编辑纪念日
 // DELETE /api/couple/anniversaries/:id 删除纪念日
-// POST /api/couple/cycles              新增经期记录
-// PUT  /api/couple/cycles/:id          编辑经期记录
-// DELETE /api/couple/cycles/:id        删除经期记录
+// POST /api/couple/cycles              新增例假记录
+// PUT  /api/couple/cycles/:id          编辑例假记录
+// DELETE /api/couple/cycles/:id        删除例假记录
 // POST /api/couple/quotes              新增自定义句子
 // DELETE /api/couple/quotes/:id        删除自定义句子
 // PUT  /api/couple/settings            保存设置（城市/坐标/提醒阈值）
@@ -20,13 +20,15 @@ import express, { Request, Response, Router } from 'express';
 import { ok, fail } from '../utils/resp';
 import { env } from '../env';
 import {
+  addDays,
   anniversaryView,
   buildDailySummary,
   buildReminders,
+  computeCheckinSummary,
   computeCycleStats,
   isValidDay,
-  pickDailyQuote,
   predictCycle,
+  resolveDailyQuote,
   todayInShanghai,
   type CoupleAnniversary,
   type CoupleSettings,
@@ -37,6 +39,7 @@ import {
   createCycle,
   createQuote,
   deviceViews,
+  getQuoteOverride,
   getSettings,
   getWeather,
   listAnniversaries,
@@ -53,6 +56,7 @@ import {
   type AnniversaryInput,
   type CycleInput,
 } from '../store/couple';
+import { listCheckinsSince, listProfiles, listTodos, listWishes } from '../store/couple-extra';
 
 const router = Router();
 
@@ -251,7 +255,7 @@ function recordFailure(key: string): void {
   }
 }
 
-function requireUnlocked(req: Request, res: Response, next: (err?: unknown) => void): void {
+export function requireUnlocked(req: Request, res: Response, next: (err?: unknown) => void): void {
   isUnlocked(req)
     .then((unlocked) => {
       if (unlocked) {
@@ -327,7 +331,7 @@ function validateCycle(body: any, partial = false): { error?: string; data?: Par
   return { data };
 }
 
-// 编辑经期记录时补齐未提交的字段再做区间校验
+// 编辑例假记录时补齐未提交的字段再做区间校验
 function cycleRangeError(current: { startDate: string; endDate: string | null }, patch: Partial<CycleInput>): string | null {
   const start = patch.startDate ?? current.startDate;
   const end = patch.endDate !== undefined ? patch.endDate : current.endDate;
@@ -339,11 +343,26 @@ function cycleRangeError(current: { startDate: string; endDate: string | null },
 
 async function composeSnapshot() {
   const today = todayInShanghai();
-  const [anniversaries, records, quotes, settings] = await Promise.all([
+  const [
+    anniversaries,
+    records,
+    quotes,
+    settings,
+    profiles,
+    checkins,
+    todos,
+    wishes,
+    quoteOverride,
+  ] = await Promise.all([
     listAnniversaries(),
     listCycles(),
     listQuotes(),
     getSettings(),
+    listProfiles(),
+    listCheckinsSince(addDays(today, -27)),
+    listTodos(),
+    listWishes(),
+    getQuoteOverride(today),
   ]);
   const weather = await getWeather(settings);
 
@@ -358,7 +377,7 @@ async function composeSnapshot() {
 
   const stats = computeCycleStats(records);
   const prediction = predictCycle(records, stats, settings, today);
-  const quote = pickDailyQuote(today, quotes.map((q) => q.content));
+  const quote = resolveDailyQuote(today, quotes.map((q) => q.content), quoteOverride);
   const reminders = buildReminders({ today, anniversaries: withViews as CoupleAnniversary[], prediction, weather, settings });
   const summary = buildDailySummary({
     today,
@@ -381,6 +400,10 @@ async function composeSnapshot() {
     reminders,
     summary,
     customQuotes: quotes,
+    profiles,
+    checkin: computeCheckinSummary(checkins, today, 28),
+    todos,
+    wishes,
   };
 }
 
@@ -592,7 +615,7 @@ router.put(
     }
     const current = (await listCycles()).find((item) => item.id === req.params.id);
     if (!current) {
-      fail(res, 404, '经期记录不存在');
+      fail(res, 404, '例假记录不存在');
       return;
     }
     const rangeError = cycleRangeError(current, data);
@@ -602,7 +625,7 @@ router.put(
     }
     const item = await updateCycle(req.params.id, data);
     if (!item) {
-      fail(res, 404, '经期记录不存在');
+      fail(res, 404, '例假记录不存在');
       return;
     }
     ok(res, item);
@@ -614,7 +637,7 @@ router.delete(
   wrap(async (req, res) => {
     const removed = await removeCycle(req.params.id);
     if (!removed) {
-      fail(res, 404, '经期记录不存在');
+      fail(res, 404, '例假记录不存在');
       return;
     }
     ok(res, { id: req.params.id });

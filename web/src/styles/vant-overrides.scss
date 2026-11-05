@@ -36,6 +36,67 @@
   // 这里用大写 PX 钉住，保证桌面 1440 仍是 14px
   --van-empty-description-font-size: 14PX;
   --van-loading-text-font-size: 14PX;
+
+  // 日期选择器 / 底部弹层：Vant 默认 px 会被 postcss 转成 vw，
+  // 桌面 1440 下会被等比放大 3.8 倍；这里全部用大写 PX 钉住。
+  --van-picker-background: #ffffff;
+  --van-picker-toolbar-height: 48PX;
+  --van-picker-title-font-size: 16PX;
+  --van-picker-action-font-size: 14PX;
+  --van-picker-action-padding: 0 16PX;
+  --van-picker-confirm-action-color: #c2410c;
+  --van-picker-cancel-action-color: #5a524b;
+  --van-picker-option-font-size: 14PX;
+  --van-picker-option-text-color: #241f1b;
+  --van-picker-option-padding: 0 8PX;
+  --van-popup-round-radius: 20PX;
+  --van-popup-background: #ffffff;
+  --van-overlay-background: rgba(24, 20, 17, 0.45);
+}
+
+// 底部弹层在桌面端收成居中小卡片，避免 1440 下铺满全屏
+@media (min-width: 768px) {
+  .couple-sheet.van-popup--bottom {
+    left: 50%;
+    bottom: 24PX;
+    width: 420PX;
+    max-width: calc(100% - 48PX);
+    transform: translateX(-50%);
+    border-radius: 20PX;
+    overflow: hidden;
+  }
+}
+
+// 移动端底部弹层：内容区避开 iPhone 安全区
+.couple-sheet .van-picker__toolbar {
+  border-bottom: 1PX solid #f0ebe4;
+}
+
+.couple-sheet .van-picker__cancel,
+.couple-sheet .van-picker__confirm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64PX;
+  min-height: 48PX;
+}
+
+.couple-sheet .van-picker__cancel:focus-visible,
+.couple-sheet .van-picker__confirm:focus-visible {
+  outline: 2PX solid #c2410c;
+  outline-offset: 2PX;
+}
+
+// 选项行 44PX 高、年月日三列等宽
+.couple-sheet .van-picker-column__item {
+  min-height: 44PX;
+  font-size: 14PX;
+  color: #241f1b;
+}
+
+.couple-sheet .van-picker__mask {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.45)),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.45));
 }
 
 // 主按钮：品牌渐变、去边框

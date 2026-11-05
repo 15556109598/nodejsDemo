@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// 今日面板：提醒 / 置顶纪念日 / 每日一句 / 天气 / 今日摘要
-import { computed, ref } from 'vue'
+// 今日面板：提醒 / 置顶纪念日 / 每日一句（换一句·指定） / 天气 / 今日摘要
+import { computed, ref, watch } from 'vue'
 import { showToast } from 'vant'
-import { CoupleApiError, coupleApi, type CoupleAnniversary, type CoupleOverview } from '@/api/couple'
+import { CoupleApiError, coupleApi, type CoupleAnniversary, type CoupleOverview, type DailyQuoteState } from '@/api/couple'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import QuoteSheet from './QuoteSheet.vue'
 
 const props = defineProps<{
   overview: CoupleOverview
@@ -12,7 +13,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'quote-changed'): void
   (e: 'refresh-weather'): void
-  (e: 'go-tab', tab: 'today' | 'anniversary' | 'cycle'): void
+  (e: 'go-tab', tab: 'today' | 'anniversary' | 'cycle' | 'daily'): void
 }>()
 
 const hero = computed<CoupleAnniversary | null>(() => {
@@ -25,20 +26,79 @@ const addingQuote = ref(false)
 const quoteError = ref('')
 const quoteListOpen = ref(false)
 
+// 每日一句：本地维护当前显示句，换一句 / 指定后立即更新，不必整页重载
+const currentQuote = ref<DailyQuoteState>({ ...props.overview.quote })
+const seenQuotes = new Set<string>([props.overview.quote.content])
+const switching = ref(false)
+const resetting = ref(false)
+const quoteSheetOpen = ref(false)
+
+watch(
+  () => props.overview.quote,
+  (value) => {
+    currentQuote.value = { ...value }
+    seenQuotes.clear()
+    seenQuotes.add(value.content)
+  }
+)
+
+const quoteTag = computed(() => {
+  if (currentQuote.value.override) return '今天已指定'
+  return currentQuote.value.isCustom ? '自定义' : '每日轮换'
+})
+
 const deletingQuoteId = ref<string | null>(null)
 const confirmVisible = ref(false)
 const confirmTarget = ref<{ id: string; content: string } | null>(null)
-
-const REMINDER_ICON: Record<string, string> = {
-  anniversary: '🎗️',
-  cycle: '🌸',
-  weather: '🌦️',
-}
 
 function errorMessage(error: unknown): string {
   if (error instanceof CoupleApiError) return error.message
   if (error instanceof Error && error.message) return error.message
   return '操作失败，请稍后重试'
+}
+
+function applyQuote(quote: DailyQuoteState): void {
+  currentQuote.value = { ...quote }
+  seenQuotes.add(quote.content)
+}
+
+async function switchQuote(): Promise<void> {
+  if (switching.value) return
+  switching.value = true
+  try {
+    // 排除已经看过的句子：池里没有新句子时服务端返回 409，给出明确提示
+    const exclude = Array.from(seenQuotes).slice(-120)
+    const picked = await coupleApi.randomQuote(exclude)
+    const saved = await coupleApi.setTodayQuote(picked.content)
+    applyQuote(saved.quote)
+  } catch (error) {
+    if (error instanceof CoupleApiError && error.status === 409) {
+      showToast(error.message || '句库里的句子都换过一轮了')
+    } else {
+      showToast(errorMessage(error))
+    }
+  } finally {
+    switching.value = false
+  }
+}
+
+async function resetQuote(): Promise<void> {
+  if (resetting.value) return
+  resetting.value = true
+  try {
+    const result = await coupleApi.resetTodayQuote()
+    currentQuote.value = { ...result.quote }
+    seenQuotes.clear()
+    seenQuotes.add(result.quote.content)
+  } catch (error) {
+    showToast(errorMessage(error))
+  } finally {
+    resetting.value = false
+  }
+}
+
+function onQuoteUpdated(quote: DailyQuoteState): void {
+  applyQuote(quote)
 }
 
 async function addQuote(): Promise<void> {
@@ -98,19 +158,19 @@ function dayLabel(date: string, index: number): string {
     <!-- 提醒 -->
     <section class="card" aria-labelledby="couple-reminders-title">
       <div class="card-head">
-        <h2 id="couple-reminders-title">本周提醒</h2>
+        <h2 id="couple-reminders-title">这几天要记着</h2>
         <span class="card-tag">{{ overview.reminders.length }} 条</span>
       </div>
       <ul v-if="overview.reminders.length" class="reminder-list">
         <li v-for="item in overview.reminders" :key="item.id" class="reminder" :class="`level-${item.level}`">
-          <span class="reminder-icon" aria-hidden="true">{{ REMINDER_ICON[item.kind] || '•' }}</span>
+          <span class="reminder-source" :class="`source-${item.kind}`">{{ item.sourceLabel }}</span>
           <div class="reminder-text">
             <p class="reminder-title">{{ item.title }}</p>
             <p class="reminder-detail">{{ item.detail }}</p>
           </div>
         </li>
       </ul>
-      <p v-else class="empty-line">本周没有需要提醒的事，安心过好今天。</p>
+      <p v-else class="empty-line">这一周没有需要提醒的事。</p>
     </section>
 
     <!-- 置顶纪念日 -->
@@ -156,12 +216,39 @@ function dayLabel(date: string, index: number): string {
     <section class="card" aria-labelledby="couple-quote-title">
       <div class="card-head">
         <h2 id="couple-quote-title">每日一句</h2>
-        <span class="card-tag">{{ overview.quote.isCustom ? '自定义' : '每日轮换' }}</span>
+        <span class="card-tag">{{ quoteTag }}</span>
       </div>
       <blockquote class="quote">
-        <p>{{ overview.quote.content }}</p>
+        <p>{{ currentQuote.content }}</p>
       </blockquote>
-      <p class="card-note">按日期确定轮换，同一天打开看到的都是这一句。</p>
+      <p class="card-note">
+        同一天默认显示同一句；「换一句」和「指定」只影响今天，明天恢复每日轮换。
+      </p>
+
+      <div class="quote-actions">
+        <button type="button" class="btn btn-ghost" :disabled="switching" @click="switchQuote">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 7h9l3 3M4 17h9l3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            <path d="M17 4l3 3-3 3M17 14l3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          {{ switching ? '换一句中…' : '换一句' }}
+        </button>
+        <button type="button" class="btn btn-ghost" @click="quoteSheetOpen = true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+          指定
+        </button>
+      </div>
+      <button
+        v-if="currentQuote.override"
+        type="button"
+        class="link-btn reset-quote"
+        :disabled="resetting"
+        @click="resetQuote"
+      >
+        {{ resetting ? '恢复中…' : '恢复每日轮换' }}
+      </button>
 
       <form class="quote-form" @submit.prevent="addQuote">
         <label class="sr-only" for="couple-quote-input">添加自定义句子</label>
@@ -270,6 +357,8 @@ function dayLabel(date: string, index: number): string {
       <p class="card-note">每日推送为可选项，未配置飞书机器人时不会发送。</p>
     </section>
 
+    <QuoteSheet v-model:show="quoteSheetOpen" :current="currentQuote" @updated="onQuoteUpdated" />
+
     <ConfirmDialog
       v-model:show="confirmVisible"
       title="删除这句？"
@@ -352,10 +441,17 @@ function dayLabel(date: string, index: number): string {
   }
 }
 
-.reminder-icon {
+.reminder-source {
   flex: none;
-  font-size: 16PX;
-  line-height: 1.4;
+  align-self: flex-start;
+  padding: 2PX 8PX;
+  font-size: 12PX;
+  line-height: 18PX;
+  color: $ink-secondary;
+  background: $surface;
+  border: 1PX solid $line;
+  border-radius: 6PX;
+  white-space: nowrap;
 }
 
 .reminder-text {
@@ -409,10 +505,11 @@ function dayLabel(date: string, index: number): string {
 }
 
 .hero-num {
-  font-size: 44PX;
+  font-size: 22PX;
   font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -1PX;
+  line-height: 1.15;
+  letter-spacing: -0.4PX;
+  font-variant-numeric: tabular-nums;
 }
 
 .hero-unit {
@@ -444,6 +541,10 @@ function dayLabel(date: string, index: number): string {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6PX;
   min-height: 44PX;
   padding: 0 16PX;
   font-size: 14PX;
@@ -453,10 +554,33 @@ function dayLabel(date: string, index: number): string {
   cursor: pointer;
   transition: background $motion-fast $ease-standard;
 
+  &:focus-visible {
+    outline: 2PX solid $brand-action;
+    outline-offset: 2PX;
+  }
+
   &:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }
+}
+
+.quote-actions {
+  display: flex;
+  gap: 8PX;
+  margin-top: 12PX;
+
+  .btn-ghost {
+    flex: 1;
+    width: auto;
+    margin-top: 0;
+  }
+}
+
+.reset-quote {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 4PX;
 }
 
 .btn-ghost {
@@ -578,15 +702,16 @@ function dayLabel(date: string, index: number): string {
 }
 
 .weather-emoji {
-  font-size: 36PX;
+  font-size: 28PX;
   line-height: 1;
 }
 
 .weather-temp {
-  font-size: 32PX;
+  font-size: 22PX;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.15;
   color: $ink;
+  font-variant-numeric: tabular-nums;
 
   span {
     margin-left: 2PX;
@@ -746,7 +871,7 @@ function dayLabel(date: string, index: number): string {
 
 @media (min-width: 768px) {
   .hero-num {
-    font-size: 52PX;
+    font-size: 22PX;
   }
 }
 </style>

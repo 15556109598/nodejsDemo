@@ -14,6 +14,7 @@ import signinRoutes from './routes/signins';
 import pointsRoutes from './routes/points';
 import snackRoutes from './routes/snacks';
 import coupleRoutes from './routes/couple';
+import coupleV2Routes from './routes/couple-v2';
 
 const app = express();
 
@@ -50,7 +51,10 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/signin', signinRoutes);
 app.use('/api/points', pointsRoutes);
 app.use('/api/snacks', snackRoutes);
+// v2 路由必须先经过 coupleRoutes 的口令门：coupleRoutes 内部对未知路径只做解锁校验后放行，
+// 因此 /session、/auth、/lock、/manifest、/daily 不会被 v2 的全局 requireUnlocked 拦截。
 app.use('/api/couple', coupleRoutes);
+app.use('/api/couple', coupleV2Routes);
 
 // 前端打包产物（web/dist）：存在则由本服务统一托管，单服务部署时无需再配 CORS
 const WEB_DIST = path.resolve(__dirname, '../../web/dist');
