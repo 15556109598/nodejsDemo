@@ -93,10 +93,64 @@ function safeEqual(a: string, b: string): boolean {
   }
 }
 
+// ---------- 本地凭证 token ----------
+// 移动端浏览器可能不保存 Cookie（Safari「阻止所有 Cookie」、微信内置浏览器、无痕模式等）。
+// 作为补充路径，/auth 额外下发一个 HMAC 签名的 token，前端存 localStorage 并通过
+// Authorization: Bearer 携带。token 不含口令明文，过期时间与 cookie 一致（90 天）。
+// 服务端无状态，/lock 只清除前端 localStorage 与 cookie，旧 token 在有效期内仍可重放
+// （风险等价于 cookie 被复制），README 中已记录该取舍。
+
+const TOKEN_VERSION = 1;
+
+function tokenKey(): Buffer | null {
+  if (!env.COUPLE_PASSCODE) return null;
+  return crypto.createHmac('sha256', env.COUPLE_PASSCODE).update('xiaochu-couple-token-v1').digest();
+}
+
+function signPayload(payload: string): string | null {
+  const key = tokenKey();
+  if (!key) return null;
+  return crypto.createHmac('sha256', key).update(payload).digest('base64url');
+}
+
+function issueToken(): string | null {
+  const payload = Buffer.from(
+    JSON.stringify({ v: TOKEN_VERSION, exp: Date.now() + COOKIE_MAX_AGE * 1000 })
+  ).toString('base64url');
+  const signature = signPayload(payload);
+  return signature ? `${payload}.${signature}` : null;
+}
+
+function verifyToken(raw: string): boolean {
+  if (!raw) return false;
+  if (!tokenKey()) return false;
+  const parts = raw.split('.');
+  if (parts.length !== 2) return false;
+  const [payload, signature] = parts;
+  const expected = signPayload(payload);
+  if (!expected || !safeEqual(signature, expected)) return false;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!data || data.v !== TOKEN_VERSION) return false;
+    if (typeof data.exp !== 'number' || data.exp <= Date.now()) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readBearer(req: Request): string {
+  const auth = String(req.headers.authorization || '');
+  if (/^bearer\s+/i.test(auth)) return auth.replace(/^bearer\s+/i, '').trim();
+  return String(req.headers['x-couple-token'] || '').trim();
+}
+
 function isUnlocked(req: Request): boolean {
   const token = expectedToken();
   if (!token) return true; // 未配置口令：公开可见
-  return safeEqual(readCookie(req, COOKIE_NAME), token);
+  // 顺序：Cookie 优先，其次本地凭证 token
+  if (safeEqual(readCookie(req, COOKIE_NAME), token)) return true;
+  return verifyToken(readBearer(req));
 }
 
 function isHttps(req: Request): boolean {
@@ -326,7 +380,13 @@ router.post(
     }
     failures.delete(key);
     setAuthCookie(req, res);
-    ok(res, { unlocked: true, passcodeSet: true });
+    // token 作为 Cookie 不生效时的补充凭证（移动端浏览器可能拒绝保存 Cookie）
+    ok(res, {
+      unlocked: true,
+      passcodeSet: true,
+      token: issueToken(),
+      tokenExpiresIn: COOKIE_MAX_AGE,
+    });
   })
 );
 

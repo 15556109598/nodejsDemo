@@ -159,10 +159,10 @@ async function save(): Promise<void> {
 
     <div class="security">
       <h3>隐私</h3>
-      <p v-if="passcodeSet">口令已启用，所有接口都需要有效 cookie 才能访问。</p>
+      <p v-if="passcodeSet">口令已启用，所有接口都需要有效 cookie 或本地凭证才能访问。</p>
       <p v-else>未设置 <code>COUPLE_PASSCODE</code>，当前内容公开可见。</p>
       <button v-if="passcodeSet" type="button" class="btn btn-ghost btn-block" @click="emit('lock')">
-        锁定并清除口令 Cookie
+        锁定并清除登录凭证
       </button>
     </div>
   </section>

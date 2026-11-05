@@ -3,7 +3,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { CoupleApiError, coupleApi, type CoupleOverview, type CoupleSession } from '@/api/couple'
+import { CoupleApiError, clearLocalToken, coupleApi, type CoupleOverview, type CoupleSession } from '@/api/couple'
 import TodayPanel from './components/TodayPanel.vue'
 import AnniversaryPanel from './components/AnniversaryPanel.vue'
 import CyclePanel from './components/CyclePanel.vue'
@@ -77,7 +77,7 @@ function errorMessage(error: unknown): string {
   return '请求失败，请稍后重试'
 }
 
-async function loadOverview(silent = false): Promise<void> {
+async function loadOverview(silent = false): Promise<boolean> {
   if (!silent) {
     loading.value = true
     loadError.value = ''
@@ -87,6 +87,7 @@ async function loadOverview(silent = false): Promise<void> {
     passcodeSet.value = overview.value.passcodeSet
     locked.value = false
     loadError.value = ''
+    return true
   } catch (error) {
     const status = error instanceof CoupleApiError ? error.status : 0
     if (status === 401) {
@@ -97,6 +98,7 @@ async function loadOverview(silent = false): Promise<void> {
       // 静默刷新失败时不整页替换内容，用轻提示告知
       if (silent && overview.value) showToast(loadError.value)
     }
+    return false
   } finally {
     loading.value = false
   }
@@ -136,13 +138,20 @@ async function unlock(): Promise<void> {
   unlocking.value = true
   try {
     await coupleApi.unlock(passcode.value.trim())
-    passcode.value = ''
     stopCooldown()
     cooldownLeft.value = 0
     locked.value = false
-    await loadOverview()
-    await nextTick()
-    titleRef.value?.focus()
+    // 口令正确后原地拉取数据，不做整页刷新（避免移动端刷新丢失凭证）
+    const loaded = await loadOverview()
+    if (loaded) {
+      passcode.value = ''
+      await nextTick()
+      titleRef.value?.focus()
+    } else {
+      // /auth 已返回 200 但随后请求 401：浏览器没有保存 Cookie，本地凭证也未生效
+      unlockError.value =
+        '登录成功，但浏览器未保存登录状态：请允许本站 Cookie（关闭“阻止所有 Cookie”与无痕模式）后重试'
+    }
   } catch (error) {
     unlockError.value = errorMessage(error)
     if (error instanceof CoupleApiError && error.status === 429) {
@@ -167,6 +176,9 @@ async function lock(): Promise<void> {
     document.getElementById('couple-passcode')?.focus()
   } catch (error) {
     showToast(errorMessage(error))
+  } finally {
+    // 即使服务端请求失败，也要清掉本地凭证，避免「锁定」后刷新又自动登录
+    clearLocalToken()
   }
 }
 
@@ -275,7 +287,9 @@ onUnmounted(stopCooldown)
             {{ unlocking ? '验证中…' : cooldownLeft > 0 ? '请稍后再试' : '解锁' }}
           </button>
         </form>
-        <p class="gate-note">口令不正确会被拒绝；本页不会把口令写入浏览器存储。</p>
+        <p class="gate-note">
+          口令不正确会被拒绝；登录状态优先写入 Cookie，若浏览器不允许 Cookie 会改用本地凭证（不保存口令明文）。
+        </p>
       </section>
 
       <template v-else-if="overview">

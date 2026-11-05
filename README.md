@@ -197,6 +197,8 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 - 页面：`/couple`（入口页第三张卡片「我们的空间」），含纪念日、每日一句、天气、经期记录与预测、提醒、今日摘要、设置。
 - 数据：Supabase Postgres 四张表 `couple_anniversaries` / `couple_cycle_records` / `couple_quotes` / `couple_settings`，均开启 RLS 且无匿名策略，仅服务端 service_role 可读写。
 - 隐私门：设置 `COUPLE_PASSCODE` 后，前端输入口令 → 服务端校验 → 下发 90 天有效的 httpOnly cookie（HMAC 值，不含明文口令）；除 `/session`、`/auth`、`/daily` 外的接口都校验该 cookie。未设置口令时模块公开可见，页面顶部有醒目警示。
+- 移动端兼容凭证：部分手机浏览器（Safari「阻止所有 Cookie」、无痕模式、微信内置浏览器）拒绝保存 Cookie，表现为「输入口令后页面回到口令页、输入框被清空」。为兼容这类环境，`POST /api/couple/auth` 会额外返回一个 HMAC-SHA256 签名的 token（payload 仅含版本号与过期时间，签名密钥由 `COUPLE_PASSCODE` 派生，不含口令明文），前端存入 `localStorage` 并以 `Authorization: Bearer <token>` 携带；服务端校验顺序为 **Cookie 有效 → 通过，否则校验 Bearer token**。有效期与 Cookie 一致（90 天），过期或被篡改返回 401。
+  - **安全说明**：`localStorage` 在 XSS 下可被脚本读取，风险高于 `HttpOnly` Cookie，因此仅作为移动端兼容的补充路径，Cookie 始终优先；页面「设置 → 锁定」会同时清除 Cookie 与本地凭证。服务端无状态，旧 token 在过期前仍可重放（风险等价于 Cookie 被复制），如需强制失效可更换 `COUPLE_PASSCODE`。
 - 天气：Open-Meteo（免密钥），默认南京 · 雨花台 **31.9957, 118.7635**；接口失败时返回降级提示，不影响页面其他内容。坐标可在页面「设置」里修改。
 - 经期预测：至少 3 次记录（2 个周期间隔）才给出预测，否则提示「样本不足」；结果仅供参考，不构成医疗建议。
 
@@ -218,7 +220,7 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/couple/auth` | 校验口令，下发 httpOnly cookie（90 天） |
+| POST | `/api/couple/auth` | 校验口令，下发 httpOnly cookie（90 天）并返回本地凭证 `token`（同有效期） |
 | GET | `/api/couple/session` | `{ passcodeSet, unlocked }` |
 | POST | `/api/couple/lock` | 清除 cookie |
 | GET | `/api/couple/overview` | 纪念日 + 每日一句 + 天气 + 经期统计/预测 + 提醒 + 今日摘要 + 设置 |

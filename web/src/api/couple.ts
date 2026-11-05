@@ -4,12 +4,61 @@
 // ============================================
 import axios from 'axios'
 
+// ============================================
+// 本地凭证（Cookie 的补充路径）
+// 移动端浏览器可能不保存 HttpOnly Cookie（Safari「阻止所有 Cookie」、微信内置浏览器、无痕模式）。
+// /auth 会额外返回一个 HMAC 签名 token，这里存 localStorage 并用 Authorization 携带。
+// 注意：localStorage 在 XSS 下可被读取，风险高于 HttpOnly Cookie；仅在 Cookie 失效时作为兜底。
+// ============================================
+const TOKEN_KEY = 'couple.localToken'
+// 内存副本：即使 localStorage 被禁用（部分隐私模式），当前会话也能继续使用
+let memoryToken = ''
+
+function readLocalToken(): string {
+  if (memoryToken) return memoryToken
+  try {
+    return window.localStorage.getItem(TOKEN_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function saveLocalToken(token: string): void {
+  if (!token) return
+  memoryToken = token
+  try {
+    window.localStorage.setItem(TOKEN_KEY, token)
+  } catch {
+    // 隐私模式可能禁用 localStorage：保留内存副本，当前会话仍可用
+  }
+}
+
+export function clearLocalToken(): void {
+  memoryToken = ''
+  try {
+    window.localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // 忽略
+  }
+}
+
+export function hasLocalToken(): boolean {
+  return Boolean(readLocalToken())
+}
+
 const client = axios.create({
   baseURL: import.meta.env.VITE_API_BASE,
   // Render 免费实例首次请求可能要 30-60 秒唤醒，这里放宽到 60 秒
   timeout: 60000,
   // 口令保存在 httpOnly cookie，跨域开发时需携带
   withCredentials: true,
+})
+
+// 每次请求自带本地凭证（若存在）；Cookie 有效时服务端优先用 Cookie
+client.interceptors.request.use((config) => {
+  const token = readLocalToken()
+  if (token) config.headers.set('Authorization', `Bearer ${token}`)
+  return config
 })
 
 export class CoupleApiError extends Error {
@@ -37,6 +86,8 @@ client.interceptors.response.use(
     const retryAfter = Number(error.response?.headers?.['retry-after']) || 0
     let message: string = error.response?.data?.message || '请求失败，请稍后重试'
     if (status === 0) message = '网络异常或服务正在唤醒，请稍等 30 秒后重试'
+    // 401 说明本地凭证也失效了（过期或服务端口令已变更），清掉避免每次请求都带坏 token
+    if (status === 401) clearLocalToken()
     return Promise.reject(new CoupleApiError(message, status, retryAfter))
   }
 )
@@ -190,14 +241,21 @@ export const coupleApi = {
     return http<CoupleSession>({ url: '/couple/session', method: 'GET' })
   },
   unlock(passcode: string) {
-    return http<{ unlocked: boolean; passcodeSet: boolean; message?: string }>({
+    return http<{ unlocked: boolean; passcodeSet: boolean; token?: string | null; message?: string }>({
       url: '/couple/auth',
       method: 'POST',
       data: { passcode },
+    }).then((data) => {
+      // Cookie 若被浏览器拒绝保存，token 就是后续请求的唯一凭证
+      if (data.token) saveLocalToken(data.token)
+      return data
     })
   },
   lock() {
-    return http<{ unlocked: boolean }>({ url: '/couple/lock', method: 'POST' })
+    return http<{ unlocked: boolean }>({ url: '/couple/lock', method: 'POST' }).then((data) => {
+      clearLocalToken()
+      return data
+    })
   },
   overview() {
     return http<CoupleOverview>({ url: '/couple/overview', method: 'GET' })
