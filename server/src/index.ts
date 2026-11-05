@@ -62,6 +62,10 @@ if (fs.existsSync(WEB_DIST)) {
       next();
       return;
     }
+    // /couple 可能带 ?device= 令牌，禁止通过 Referer 泄露到外部资源
+    if (req.path === '/couple' || req.path.startsWith('/couple/')) {
+      res.set('Referrer-Policy', 'no-referrer');
+    }
     res.sendFile(path.join(WEB_DIST, 'index.html'));
   });
 }

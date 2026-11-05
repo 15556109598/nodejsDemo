@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 设置面板：城市/坐标/提醒阈值 + 锁定
-import { ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { showToast } from 'vant'
-import { CoupleApiError, coupleApi, type CoupleSettings } from '@/api/couple'
+import { CoupleApiError, coupleApi, type CoupleDevice, type CoupleSettings } from '@/api/couple'
 
 const props = defineProps<{
   settings: CoupleSettings
@@ -25,6 +25,65 @@ const weatherDeltaC = ref(String(props.settings.weatherDeltaC))
 
 const saving = ref(false)
 const errorMessageText = ref('')
+
+// ---------- 手机桌面入口（设备链接） ----------
+const deviceLabel = ref('')
+const deviceLink = ref('')
+const devices = ref<CoupleDevice[]>([])
+const deviceBusy = ref(false)
+const deviceMessage = ref('')
+
+async function loadDevices(): Promise<void> {
+  if (!props.passcodeSet) return
+  try {
+    devices.value = await coupleApi.listDevices()
+  } catch {
+    // 设备列表加载失败不阻断设置面板
+  }
+}
+
+async function createDeviceLink(): Promise<void> {
+  deviceMessage.value = ''
+  deviceBusy.value = true
+  try {
+    const result = await coupleApi.createDeviceLink(deviceLabel.value.trim())
+    deviceLink.value = result.url
+    deviceLabel.value = ''
+    await loadDevices()
+    showToast('设备链接已生成')
+  } catch (error) {
+    deviceMessage.value = errorMessage(error)
+  } finally {
+    deviceBusy.value = false
+  }
+}
+
+function selectDeviceLink(event: FocusEvent): void {
+  const target = event.target as HTMLInputElement | null
+  target?.select()
+}
+
+async function copyDeviceLink(): Promise<void> {
+  if (!deviceLink.value) return
+  try {
+    await navigator.clipboard.writeText(deviceLink.value)
+    showToast('链接已复制')
+  } catch {
+    showToast('请长按输入框手动复制')
+  }
+}
+
+async function revokeDevice(id: string): Promise<void> {
+  try {
+    await coupleApi.revokeDevice(id)
+    await loadDevices()
+    showToast('设备已吊销')
+  } catch (error) {
+    deviceMessage.value = errorMessage(error)
+  }
+}
+
+onMounted(loadDevices)
 
 watch(
   () => props.settings,
@@ -157,6 +216,46 @@ async function save(): Promise<void> {
       </button>
     </form>
 
+    <div v-if="passcodeSet" class="device">
+      <h3>手机桌面入口</h3>
+      <p class="hint">
+        手机把网页「添加到主屏幕」后，浏览器可能不保存登录状态。生成一条带设备凭证的链接，用手机打开后再添加到主屏幕即可直接进入。
+      </p>
+      <label class="field">
+        <span class="field-label">设备名称</span>
+        <input v-model="deviceLabel" class="input" type="text" maxlength="30" placeholder="例如：我的 iPhone" />
+      </label>
+      <button type="button" class="btn btn-primary btn-block" :disabled="deviceBusy" @click="createDeviceLink">
+        {{ deviceBusy ? '生成中…' : '生成设备链接' }}
+      </button>
+
+      <div v-if="deviceLink" class="device-link">
+        <label class="field-label" for="couple-device-link">设备链接（长按或复制）</label>
+        <input
+          id="couple-device-link"
+          class="input"
+          :value="deviceLink"
+          readonly
+          @focus="selectDeviceLink"
+        />
+        <button type="button" class="btn btn-ghost btn-block" @click="copyDeviceLink">复制链接</button>
+      </div>
+
+      <p v-if="deviceMessage" class="error-text" role="alert">{{ deviceMessage }}</p>
+
+      <ul v-if="devices.length" class="device-list">
+        <li v-for="item in devices" :key="item.id">
+          <div>
+            <strong>{{ item.label }}</strong>
+            <span>{{ item.createdAt.slice(0, 10) }} 生成</span>
+          </div>
+          <button type="button" class="link-btn" @click="revokeDevice(item.id)">吊销</button>
+        </li>
+      </ul>
+      <p v-else class="hint">还没有设备链接。</p>
+      <p class="hint">安全提示：链接等同于钥匙，请勿外发；手机丢失时在这里吊销即可。</p>
+    </div>
+
     <div class="security">
       <h3>隐私</h3>
       <p v-if="passcodeSet">口令已启用，所有接口都需要有效 cookie 或本地凭证才能访问。</p>
@@ -283,6 +382,56 @@ async function save(): Promise<void> {
   background: transparent;
   border: none;
   cursor: pointer;
+}
+
+.device {
+  margin-top: 16PX;
+  padding-top: 12PX;
+  border-top: 1PX solid $line-soft;
+
+  h3 {
+    margin-bottom: 4PX;
+    font-size: 14PX;
+    font-weight: 600;
+    line-height: 1.5;
+    color: $ink;
+  }
+
+  .device-link {
+    margin: 10PX 0 6PX;
+  }
+}
+
+.device-list {
+  margin: 4PX 0 8PX;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8PX;
+    padding: 6PX 0;
+    border-bottom: 1PX solid $line-soft;
+
+    div {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    strong {
+      font-size: 13PX;
+      font-weight: 600;
+      color: $ink;
+    }
+
+    span {
+      font-size: 12PX;
+      color: $ink-muted;
+    }
+  }
 }
 
 .security {

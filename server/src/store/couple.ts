@@ -1,5 +1,6 @@
 // 情侣空间：Supabase 数据访问 + Open-Meteo 天气
 // 仅服务端使用 service_role；所有表开启 RLS 且无匿名策略
+import { randomUUID } from 'crypto';
 import { adminClient } from '../lib/supabase';
 import { env } from '../env';
 import {
@@ -290,6 +291,75 @@ export async function saveSettings(patch: Record<string, unknown>): Promise<Coup
     .upsert({ key: 'couple', value: merged, updated_at: new Date().toISOString() });
   if (error) raise(error);
   return merged;
+}
+
+// ---------- 设备链接（不依赖 cookie / localStorage） ----------
+// 复用 couple_settings 表的 key-value 结构，key = 'couple_devices'；
+// 只保存 HMAC 哈希，不保存明文令牌。与口令绑定，换口令即全部失效。
+
+const DEVICE_KEY = 'couple_devices';
+
+export interface CoupleDeviceRow {
+  id: string;
+  label: string;
+  tokenHash: string;
+  createdAt: string;
+}
+
+export interface CoupleDeviceView {
+  id: string;
+  label: string;
+  createdAt: string;
+}
+
+function normalizeDeviceRows(raw: unknown): CoupleDeviceRow[] {
+  const list = (raw as any)?.devices;
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((item: any) => item && typeof item.id === 'string' && typeof item.tokenHash === 'string')
+    .map((item: any) => ({
+      id: item.id,
+      label: typeof item.label === 'string' ? item.label.slice(0, 30) : '',
+      tokenHash: item.tokenHash,
+      createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+    }));
+}
+
+export async function listDeviceRows(): Promise<CoupleDeviceRow[]> {
+  const { data, error } = await adminClient
+    .from(SETTINGS_TABLE)
+    .select('value')
+    .eq('key', DEVICE_KEY)
+    .maybeSingle();
+  if (error) raise(error);
+  return normalizeDeviceRows(data?.value);
+}
+
+async function persistDeviceRows(rows: CoupleDeviceRow[]): Promise<void> {
+  const { error } = await adminClient
+    .from(SETTINGS_TABLE)
+    .upsert({ key: DEVICE_KEY, value: { devices: rows }, updated_at: new Date().toISOString() });
+  if (error) raise(error);
+}
+
+export async function addDeviceRow(label: string, tokenHash: string): Promise<CoupleDeviceView> {
+  const rows = await listDeviceRows();
+  const row: CoupleDeviceRow = { id: randomUUID(), label, tokenHash, createdAt: new Date().toISOString() };
+  rows.push(row);
+  await persistDeviceRows(rows);
+  return { id: row.id, label: row.label, createdAt: row.createdAt };
+}
+
+export async function removeDeviceRow(id: string): Promise<boolean> {
+  const rows = await listDeviceRows();
+  const next = rows.filter((item) => item.id !== id);
+  if (next.length === rows.length) return false;
+  await persistDeviceRows(next);
+  return true;
+}
+
+export function deviceViews(rows: CoupleDeviceRow[]): CoupleDeviceView[] {
+  return rows.map((item) => ({ id: item.id, label: item.label, createdAt: item.createdAt }));
 }
 
 // ---------- 天气（Open-Meteo，免密钥） ----------

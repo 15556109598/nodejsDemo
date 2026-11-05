@@ -46,6 +46,45 @@ export function hasLocalToken(): boolean {
   return Boolean(readLocalToken())
 }
 
+// ============================================
+// 设备链接凭证（手机桌面 / iOS 独立 Web App 兜底）
+// 链接形如 /couple?device=<token>，不依赖 cookie 与 localStorage；
+// 从桌面图标打开时地址栏仍带该参数，因此每次启动都能直接进入。
+// 风险：链接等同于钥匙，不要外发；可在设置页吊销。
+// ============================================
+const DEVICE_KEY = 'couple.device'
+let activeDevice = ''
+
+function captureDevice(): string {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('device') || ''
+    if (fromUrl) {
+      activeDevice = fromUrl
+      try {
+        window.localStorage.setItem(DEVICE_KEY, fromUrl)
+      } catch {
+        // 存储不可用时仅保留内存副本（本次启动仍有效）
+      }
+      return fromUrl
+    }
+    const saved = window.localStorage.getItem(DEVICE_KEY) || ''
+    activeDevice = saved
+    return saved
+  } catch {
+    return activeDevice
+  }
+}
+
+export function currentDeviceToken(): string {
+  return activeDevice || captureDevice()
+}
+
+export function hasDeviceToken(): boolean {
+  return Boolean(currentDeviceToken())
+}
+
+captureDevice()
+
 const client = axios.create({
   baseURL: import.meta.env.VITE_API_BASE,
   // Render 免费实例首次请求可能要 30-60 秒唤醒，这里放宽到 60 秒
@@ -58,6 +97,8 @@ const client = axios.create({
 client.interceptors.request.use((config) => {
   const token = readLocalToken()
   if (token) config.headers.set('Authorization', `Bearer ${token}`)
+  const device = currentDeviceToken()
+  if (device) config.headers.set('x-couple-device', device)
   return config
 })
 
@@ -236,6 +277,12 @@ export interface CoupleOverview {
   customQuotes: CoupleQuote[]
 }
 
+export interface CoupleDevice {
+  id: string
+  label: string
+  createdAt: string
+}
+
 export const coupleApi = {
   session() {
     return http<CoupleSession>({ url: '/couple/session', method: 'GET' })
@@ -289,5 +336,18 @@ export const coupleApi = {
   },
   saveSettings(data: Partial<CoupleSettings>) {
     return http<CoupleSettings>({ url: '/couple/settings', method: 'PUT', data })
+  },
+  createDeviceLink(label: string) {
+    return http<{ device: CoupleDevice; url: string }>({
+      url: '/couple/device-link',
+      method: 'POST',
+      data: { label },
+    })
+  },
+  listDevices() {
+    return http<CoupleDevice[]>({ url: '/couple/devices', method: 'GET' })
+  },
+  revokeDevice(id: string) {
+    return http<{ id: string }>({ url: `/couple/devices/${id}`, method: 'DELETE' })
   },
 }

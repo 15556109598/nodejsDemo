@@ -3,7 +3,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { CoupleApiError, clearLocalToken, coupleApi, type CoupleOverview, type CoupleSession } from '@/api/couple'
+import { CoupleApiError, clearLocalToken, coupleApi, currentDeviceToken, hasDeviceToken, type CoupleOverview, type CoupleSession } from '@/api/couple'
 import TodayPanel from './components/TodayPanel.vue'
 import AnniversaryPanel from './components/AnniversaryPanel.vue'
 import CyclePanel from './components/CyclePanel.vue'
@@ -114,6 +114,8 @@ async function init(): Promise<void> {
       locked.value = true
       overview.value = null
       loading.value = false
+      // 从桌面图标带 ?device= 打开但凭证已失效时，给出明确提示
+      if (hasDeviceToken()) unlockError.value = '设备凭证已失效，请重新输入口令'
       await nextTick()
       document.getElementById('couple-passcode')?.focus()
       return
@@ -217,8 +219,33 @@ function goTab(key: TabKey): void {
   tab.value = key
 }
 
-onMounted(init)
-onUnmounted(stopCooldown)
+// 手机桌面图标：把页面 manifest 指向 /couple 专用 manifest（含设备令牌），
+// 避免系统按全局 manifest 的 start_url="/" 把图标指向入口页，丢失 ?device= 凭证。
+function manifestLink(): HTMLLinkElement | null {
+  return document.querySelector('link[rel="manifest"]')
+}
+
+function syncManifest(): void {
+  const link = manifestLink()
+  if (!link) return
+  const base = ((import.meta.env.VITE_API_BASE as string | undefined) || '/api').replace(/\/$/, '')
+  const device = currentDeviceToken()
+  link.href = `${base}/couple/manifest${device ? `?device=${encodeURIComponent(device)}` : ''}`
+}
+
+function restoreManifest(): void {
+  const link = manifestLink()
+  if (link) link.href = '/manifest.webmanifest'
+}
+
+onMounted(() => {
+  syncManifest()
+  init()
+})
+onUnmounted(() => {
+  stopCooldown()
+  restoreManifest()
+})
 </script>
 
 <template>

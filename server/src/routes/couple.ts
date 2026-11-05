@@ -32,16 +32,20 @@ import {
   type CoupleSettings,
 } from '../store/couple-logic';
 import {
+  addDeviceRow,
   createAnniversary,
   createCycle,
   createQuote,
+  deviceViews,
   getSettings,
   getWeather,
   listAnniversaries,
   listCycles,
+  listDeviceRows,
   listQuotes,
   removeAnniversary,
   removeCycle,
+  removeDeviceRow,
   removeQuote,
   saveSettings,
   updateAnniversary,
@@ -145,12 +149,38 @@ function readBearer(req: Request): string {
   return String(req.headers['x-couple-token'] || '').trim();
 }
 
-function isUnlocked(req: Request): boolean {
+function readDeviceToken(req: Request): string {
+  const query = req.query?.device;
+  const fromQuery = typeof query === 'string' ? query : '';
+  return fromQuery || String(req.headers['x-couple-device'] || '').trim();
+}
+
+function deviceHash(token: string): string | null {
+  const key = tokenKey();
+  if (!key) return null;
+  return crypto.createHmac('sha256', key).update(token).digest('hex');
+}
+
+async function isDeviceTokenValid(token: string): Promise<boolean> {
+  if (!token) return false;
+  const hash = deviceHash(token);
+  if (!hash) return false;
+  const rows = await listDeviceRows();
+  let matched = false;
+  for (const row of rows) {
+    // 等长常量时间比较
+    if (safeEqual(row.tokenHash, hash)) matched = true;
+  }
+  return matched;
+}
+
+async function isUnlocked(req: Request): Promise<boolean> {
   const token = expectedToken();
   if (!token) return true; // 未配置口令：公开可见
-  // 顺序：Cookie 优先，其次本地凭证 token
+  // 顺序：Cookie → 本地凭证 token → 设备链接令牌
   if (safeEqual(readCookie(req, COOKIE_NAME), token)) return true;
-  return verifyToken(readBearer(req));
+  if (verifyToken(readBearer(req))) return true;
+  return isDeviceTokenValid(readDeviceToken(req));
 }
 
 function isHttps(req: Request): boolean {
@@ -222,11 +252,16 @@ function recordFailure(key: string): void {
 }
 
 function requireUnlocked(req: Request, res: Response, next: (err?: unknown) => void): void {
-  if (isUnlocked(req)) {
-    next();
-    return;
-  }
-  fail(res, 401, '请输入口令后再访问');
+  isUnlocked(req)
+    .then((unlocked) => {
+      if (unlocked) {
+        next();
+        return;
+      }
+      // 带了设备参数却校验失败时，给出可操作的提示而不是笼统的 401
+      fail(res, 401, readDeviceToken(req) ? '设备凭证已失效，请重新输入口令' : '请输入口令后再访问');
+    })
+    .catch(next);
 }
 
 // ---------- 校验 ----------
@@ -390,14 +425,48 @@ router.post(
   })
 );
 
-router.get('/session', (req: Request, res: Response) => {
-  ok(res, { passcodeSet: Boolean(env.COUPLE_PASSCODE), unlocked: isUnlocked(req) });
-});
+router.get(
+  '/session',
+  wrap(async (req, res) => {
+    ok(res, { passcodeSet: Boolean(env.COUPLE_PASSCODE), unlocked: await isUnlocked(req) });
+  })
+);
 
 router.post('/lock', (req: Request, res: Response) => {
   clearAuthCookie(req, res);
   ok(res, { unlocked: !env.COUPLE_PASSCODE });
 });
+
+// 手机桌面入口的 manifest：start_url 固定到 /couple，避免从桌面图标启动时先落到入口页 `/`；
+// 若请求带有效设备令牌，则把令牌写进 start_url，使桌面图标在无 cookie / 无本地存储时也能直接进入。
+router.get(
+  '/manifest',
+  wrap(async (req, res) => {
+    const device = readDeviceToken(req);
+    const startUrl = device && (await isDeviceTokenValid(device)) ? `/couple?device=${encodeURIComponent(device)}` : '/couple';
+    res.set('Content-Type', 'application/manifest+json');
+    res.set('Cache-Control', 'no-store');
+    res.send(
+      JSON.stringify({
+        name: '小厨点餐',
+        short_name: '小厨点餐',
+        description: '新鲜现炒 · 堂食更香 · 积分享好礼',
+        lang: 'zh-CN',
+        start_url: startUrl,
+        scope: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#FF6B35',
+        theme_color: '#FF6B35',
+        icons: [
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      })
+    );
+  })
+);
 
 // 定时推送：必须配置 COUPLE_CRON_SECRET，否则接口关闭；未配 webhook 时返回 sent:false，不算失败
 router.post(
@@ -586,6 +655,52 @@ router.put(
     }
     const settings: CoupleSettings = await saveSettings(body);
     ok(res, settings);
+  })
+);
+
+// ---------- 设备链接（手机桌面 / 独立 Web App 兜底） ----------
+// 生成长期令牌并只保存哈希；链接形如 /couple?device=<token>，无需 cookie 即可访问。
+// 失效方式：在设置页吊销，或更换 COUPLE_PASSCODE（哈希密钥随之变化）。
+router.post(
+  '/device-link',
+  wrap(async (req, res) => {
+    if (!env.COUPLE_PASSCODE) {
+      fail(res, 400, '未设置口令，无需设备链接');
+      return;
+    }
+    const label = text(req.body?.label, 30) || '未命名设备';
+    // 32 字节随机（base64url 43 字符），不可预测
+    const token = crypto.randomBytes(32).toString('base64url');
+    const hash = deviceHash(token);
+    if (!hash) {
+      fail(res, 500, '生成设备凭证失败');
+      return;
+    }
+    const device = await addDeviceRow(label, hash);
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0]
+      .trim();
+    const proto = isHttps(req) ? 'https' : 'http';
+    ok(res, { device, url: `${proto}://${host}/couple?device=${token}` });
+  })
+);
+
+router.get(
+  '/devices',
+  wrap(async (_req, res) => {
+    ok(res, deviceViews(await listDeviceRows()));
+  })
+);
+
+router.delete(
+  '/devices/:id',
+  wrap(async (req, res) => {
+    const removed = await removeDeviceRow(req.params.id);
+    if (!removed) {
+      fail(res, 404, '设备不存在或已吊销');
+      return;
+    }
+    ok(res, { id: req.params.id });
   })
 );
 

@@ -199,6 +199,9 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 - 隐私门：设置 `COUPLE_PASSCODE` 后，前端输入口令 → 服务端校验 → 下发 90 天有效的 httpOnly cookie（HMAC 值，不含明文口令）；除 `/session`、`/auth`、`/daily` 外的接口都校验该 cookie。未设置口令时模块公开可见，页面顶部有醒目警示。
 - 移动端兼容凭证：部分手机浏览器（Safari「阻止所有 Cookie」、无痕模式、微信内置浏览器）拒绝保存 Cookie，表现为「输入口令后页面回到口令页、输入框被清空」。为兼容这类环境，`POST /api/couple/auth` 会额外返回一个 HMAC-SHA256 签名的 token（payload 仅含版本号与过期时间，签名密钥由 `COUPLE_PASSCODE` 派生，不含口令明文），前端存入 `localStorage` 并以 `Authorization: Bearer <token>` 携带；服务端校验顺序为 **Cookie 有效 → 通过，否则校验 Bearer token**。有效期与 Cookie 一致（90 天），过期或被篡改返回 401。
   - **安全说明**：`localStorage` 在 XSS 下可被脚本读取，风险高于 `HttpOnly` Cookie，因此仅作为移动端兼容的补充路径，Cookie 始终优先；页面「设置 → 锁定」会同时清除 Cookie 与本地凭证。服务端无状态，旧 token 在过期前仍可重放（风险等价于 Cookie 被复制），如需强制失效可更换 `COUPLE_PASSCODE`。
+- 手机桌面入口（设备链接）：iOS Safari「添加到主屏幕」后是独立 Web App，与 Safari 的 Cookie/存储隔离，常出现「每次打开都要重新输口令」。设置页可生成 `https://<host>/couple?device=<token>`，服务端只保存该令牌的 HMAC-SHA256 哈希（存在 `couple_settings` 表 `key=couple_devices`），请求时通过 `?device=` 或 `x-couple-device` 头校验，校验顺序为 Cookie → 本地凭证 → 设备令牌。`GET /api/couple/devices` 列出设备、`DELETE /api/couple/devices/:id` 吊销；更换 `COUPLE_PASSCODE` 会让所有设备令牌立即失效。`/couple` 页面返回 `Referrer-Policy: no-referrer`，令牌不会出现在日志或错误信息里。
+  - **风险**：设备链接等同于钥匙，泄露即可访问，请勿外发；手机丢失时在设置页吊销。令牌保存在地址栏，浏览器历史与截图可能包含它。
+  - **桌面图标指向**：全局 manifest 的 `start_url` 是 `/`，部分系统会把图标指向入口页而丢失 `?device=`。`/couple` 页面会把 `link[rel=manifest]` 切到 `GET /api/couple/manifest`，其 `start_url` 固定为 `/couple`；带有效设备令牌时 `start_url` 为 `/couple?device=<token>`，因此从桌面图标启动可直接进入。下次打开普通入口（不带 `device`）时图标仍按当前地址走。
 - 天气：Open-Meteo（免密钥），默认南京 · 雨花台 **31.9957, 118.7635**；接口失败时返回降级提示，不影响页面其他内容。坐标可在页面「设置」里修改。
 - 经期预测：至少 3 次记录（2 个周期间隔）才给出预测，否则提示「样本不足」；结果仅供参考，不构成医疗建议。
 
@@ -222,7 +225,10 @@ npm run dev      # http://localhost:5173（API 直连 localhost:3000，后端 CO
 |---|---|---|
 | POST | `/api/couple/auth` | 校验口令，下发 httpOnly cookie（90 天）并返回本地凭证 `token`（同有效期） |
 | GET | `/api/couple/session` | `{ passcodeSet, unlocked }` |
-| POST | `/api/couple/lock` | 清除 cookie |
+| POST | `/api/couple/lock` | 清除 cookie（前端同时清除本地凭证） |
+| POST | `/api/couple/device-link` | 生成设备链接（需已登录），只返回 URL 与设备信息，服务端仅存令牌哈希 |
+| GET | `/api/couple/devices` | 设备列表（不含令牌哈希） |
+| DELETE | `/api/couple/devices/:id` | 吊销设备（立即失效） |
 | GET | `/api/couple/overview` | 纪念日 + 每日一句 + 天气 + 经期统计/预测 + 提醒 + 今日摘要 + 设置 |
 | GET | `/api/couple/weather` | 单独刷新天气（失败时 `available:false`，HTTP 仍为 200） |
 | POST / PUT / DELETE | `/api/couple/anniversaries[/:id]` | 纪念日新增/编辑/删除 |
