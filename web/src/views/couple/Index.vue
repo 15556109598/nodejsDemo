@@ -752,6 +752,14 @@ onUnmounted(() => {
   transition: transform 180ms $ease-standard;
 }
 
+// 系统开启「减少动态效果」时，选中态直接切换，不做位移过渡
+@media (prefers-reduced-motion: reduce) {
+  .tab-indicator,
+  .tab-button {
+    transition: none;
+  }
+}
+
 .tab-button {
   position: relative;
   z-index: 1;
