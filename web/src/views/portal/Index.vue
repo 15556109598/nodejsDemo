@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 入口页：模块导航/选择页（模块数据来自 @/modules 的集中配置）
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { APP_MODULES, type AppModule } from '@/modules'
@@ -7,6 +8,13 @@ import { APP_MODULES, type AppModule } from '@/modules'
 import heroPhoto from '@/assets/portal/lulu-lumei.jpg'
 
 const router = useRouter()
+
+// 配图加载失败时回退到 emoji 图标，避免出现破图框
+const brokenImages = ref<string[]>([])
+
+function onImageError(mod: AppModule) {
+  if (!brokenImages.value.includes(mod.id)) brokenImages.value = [...brokenImages.value, mod.id]
+}
 
 function openModule(mod: AppModule) {
   if (mod.status !== 'available') {
@@ -31,24 +39,16 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
 
 <template>
   <div class="portal">
-    <header class="portal-header">
-      <div class="brand">
-        <span class="brand-eyebrow">小厨 · 生活工具</span>
-        <h1>小厨应用中心</h1>
-        <p>选择一个模块开始使用</p>
-      </div>
+    <!-- 页内唯一主标题：视觉隐藏，只为保留正确的标题层级与页面可访问名 -->
+    <h1 class="sr-only">小厨应用中心</h1>
 
+    <header class="portal-header">
       <div class="hero">
         <img class="hero-img" :src="heroPhoto" alt="噜噜和噜妹" />
       </div>
     </header>
 
     <main class="portal-body">
-      <div class="section-head">
-        <h2>功能模块</h2>
-        <span class="section-count">{{ APP_MODULES.length }} 个</span>
-      </div>
-
       <div class="module-list">
         <div
           v-for="mod in APP_MODULES"
@@ -62,14 +62,25 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
           @click="openModule(mod)"
           @keydown="onModuleKeydown($event, mod)"
         >
-          <div class="module-icon" :style="{ background: mod.accent || '#FBE3D6' }" aria-hidden="true">
-            <span v-if="mod.iconType === 'vant'" :class="['van-icon', `van-icon-${mod.icon}`]" />
+          <div
+            class="module-icon"
+            :style="mod.image && !brokenImages.includes(mod.id) ? undefined : { background: mod.accent || '#FBE3D6' }"
+            aria-hidden="true"
+          >
+            <img
+              v-if="mod.image && !brokenImages.includes(mod.id)"
+              class="module-photo"
+              :src="mod.image"
+              :alt="mod.name"
+              @error="onImageError(mod)"
+            />
+            <span v-else-if="mod.iconType === 'vant'" :class="['van-icon', `van-icon-${mod.icon}`]" />
             <span v-else class="module-emoji">{{ mod.icon }}</span>
           </div>
 
           <div class="module-info">
             <div class="module-name-row">
-              <span class="module-name">{{ mod.name }}</span>
+              <h2 class="module-name">{{ mod.name }}</h2>
               <span v-if="mod.badge" class="module-badge">{{ mod.badge }}</span>
             </div>
             <p class="module-desc">{{ mod.description }}</p>
@@ -106,45 +117,28 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
 
 .portal-header {
   position: relative;
-  // 顶部留出状态栏/刘海安全区
-  padding: calc(20PX + env(safe-area-inset-top)) 16PX 20PX;
+  // 顶部留出状态栏/刘海安全区；头部只剩主图，不再有标题区
+  padding: calc(12PX + env(safe-area-inset-top)) 16PX 0;
   background: $bg-warm;
-  border-bottom: 1PX solid $line;
 }
 
-.brand {
-  .brand-eyebrow {
-    display: inline-block;
-    margin-bottom: 10PX;
-    padding: 3PX 8PX;
-    font-size: 12PX;
-    line-height: 18PX;
-    color: $brand-action;
-    background: $brand-tint;
-    border-radius: 8PX;
-    letter-spacing: 0.4PX;
-  }
-
-  h1 {
-    font-size: 22PX;
-    font-weight: 700;
-    line-height: 1.25;
-    letter-spacing: 0.2PX;
-    color: $ink;
-  }
-
-  p {
-    margin-top: 6PX;
-    font-size: 13PX;
-    line-height: 1.5;
-    color: $ink-secondary;
-  }
+// 视觉隐藏但保留可访问性：给页面一个真实的 h1
+.sr-only {
+  position: absolute;
+  width: 1PX;
+  height: 1PX;
+  margin: -1PX;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 // 顶部主图：噜噜和噜妹，16:9（桌面 21:9），细描边 + 极浅阴影
 .hero {
   position: relative;
-  margin-top: 16PX;
   aspect-ratio: 16 / 9;
   overflow: hidden;
   border-radius: 12PX;
@@ -164,27 +158,8 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
 
 .portal-body {
   flex: 1;
-  padding: 20PX 16PX 32PX;
-}
-
-.section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12PX;
-
-  h2 {
-    font-size: 16PX;
-    font-weight: 600;
-    line-height: 1.25;
-    color: $ink;
-  }
-}
-
-.section-count {
-  font-size: 12PX;
-  line-height: 1.5;
-  color: $ink-muted;
+  // 主图与第一张模块卡之间只留 16PX，卡片直接接在主图下方
+  padding: 16PX 16PX 32PX;
 }
 
 .module-list {
@@ -224,6 +199,7 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   border-radius: 8PX;
   border: 1PX solid $line;
   font-size: 22PX;
@@ -232,6 +208,14 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
     font-size: 22PX;
     color: $ink-secondary;
   }
+}
+
+// 模块配图：132×132 源图铺满 44PX 图标砖，高 DPI 下仍清晰
+.module-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .module-info {
@@ -302,16 +286,13 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
     max-width: $content-max;
   }
 
+  // 头部只剩主图，容器不再需要描边卡片
   .portal-header {
-    padding-left: 24PX;
-    padding-right: 24PX;
-    border: 1PX solid $line;
-    border-radius: 20PX;
-    margin-bottom: 20PX;
+    padding: 0 24PX;
   }
 
   .portal-body {
-    padding: 0 24PX;
+    padding: 16PX 24PX 0;
   }
 
   .hero {

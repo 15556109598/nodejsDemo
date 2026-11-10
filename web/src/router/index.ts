@@ -12,12 +12,13 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'portal',
     component: () => import('@/views/portal/Index.vue'),
+    meta: { title: '小厨应用中心' },
   },
   {
     path: '/app',
     name: 'home',
     component: () => import('@/views/home/Index.vue'),
-    meta: { tabbar: true, keepAlive: true },
+    meta: { tabbar: true, keepAlive: true, title: 'jump jump' },
   },
   {
     path: '/snacks',
@@ -33,28 +34,31 @@ const routes: RouteRecordRaw[] = [
     path: '/order',
     name: 'order',
     component: () => import('@/views/order/List.vue'),
-    meta: { tabbar: true },
+    meta: { tabbar: true, title: 'jump jump' },
   },
   {
     path: '/mine',
     name: 'mine',
     component: () => import('@/views/mine/Index.vue'),
-    meta: { tabbar: true },
+    meta: { tabbar: true, title: 'jump jump' },
   },
   {
     path: '/login',
     name: 'login',
     component: () => import('@/views/login/Login.vue'),
+    meta: { title: 'jump jump' },
   },
   {
     path: '/order/:id',
     name: 'order-detail',
     component: () => import('@/views/order/Detail.vue'),
+    meta: { title: 'jump jump' },
   },
   {
     path: '/points',
     name: 'points',
     component: () => import('@/views/mine/PointsLog.vue'),
+    meta: { title: 'jump jump' },
   },
 ]
 
@@ -69,6 +73,11 @@ router.beforeEach((to) => {
   if (!userStore.token && !PUBLIC_PATHS.includes(to.path)) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
+})
+
+// 浏览器标签标题：按路由 meta 设置，未配置的页面沿用站点默认标题
+router.afterEach((to) => {
+  document.title = (to.meta.title as string | undefined) || '小厨点餐'
 })
 
 export default router

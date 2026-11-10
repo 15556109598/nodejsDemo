@@ -127,7 +127,7 @@ function onCardAdd(dish: Dish, pos: { x: number; y: number }) {
           <van-icon name="shop-o" size="26" color="#fff" />
         </div>
         <div class="brand-text">
-          <div class="title">小厨点餐</div>
+          <div class="title">jump jump</div>
           <div class="slogan">新鲜现炒 · 堂食更香</div>
         </div>
       </div>
