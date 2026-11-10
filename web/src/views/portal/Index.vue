@@ -1,6 +1,5 @@
 <script setup lang="ts">
 // 入口页：模块导航/选择页（模块数据来自 @/modules 的集中配置）
-import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { APP_MODULES, type AppModule } from '@/modules'
@@ -8,13 +7,6 @@ import { APP_MODULES, type AppModule } from '@/modules'
 import heroPhoto from '@/assets/portal/lulu-lumei.jpg'
 
 const router = useRouter()
-
-// 配图加载失败时回退到 emoji 图标，避免出现破图框
-const brokenImages = ref<string[]>([])
-
-function onImageError(mod: AppModule) {
-  if (!brokenImages.value.includes(mod.id)) brokenImages.value = [...brokenImages.value, mod.id]
-}
 
 function openModule(mod: AppModule) {
   if (mod.status !== 'available') {
@@ -62,19 +54,8 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
           @click="openModule(mod)"
           @keydown="onModuleKeydown($event, mod)"
         >
-          <div
-            class="module-icon"
-            :style="mod.image && !brokenImages.includes(mod.id) ? undefined : { background: mod.accent || '#FBE3D6' }"
-            aria-hidden="true"
-          >
-            <img
-              v-if="mod.image && !brokenImages.includes(mod.id)"
-              class="module-photo"
-              :src="mod.image"
-              :alt="mod.name"
-              @error="onImageError(mod)"
-            />
-            <span v-else-if="mod.iconType === 'vant'" :class="['van-icon', `van-icon-${mod.icon}`]" />
+          <div class="module-icon" :style="{ background: mod.accent || '#FBE3D6' }" aria-hidden="true">
+            <span v-if="mod.iconType === 'vant'" :class="['van-icon', `van-icon-${mod.icon}`]" />
             <span v-else class="module-emoji">{{ mod.icon }}</span>
           </div>
 
@@ -208,14 +189,6 @@ function onModuleKeydown(e: KeyboardEvent, mod: AppModule) {
     font-size: 22PX;
     color: $ink-secondary;
   }
-}
-
-// 模块配图：132×132 源图铺满 44PX 图标砖，高 DPI 下仍清晰
-.module-photo {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .module-info {

@@ -10,9 +10,8 @@
 //   id:          模块唯一标识
 //   name:        模块名称（卡片标题）
 //   description: 一句话描述
-//   icon:        图标（emoji，或 Vant 图标名，见 iconType）；有 image 时作为加载失败的回退
+//   icon:        图标（emoji，或 Vant 图标名，见 iconType）
 //   iconType:    'emoji' | 'vant'，默认 emoji
-//   image?:      卡片配图（正方形，已压缩）；提供时优先用它替代图标
 //   path:        站内路由路径；external 为 true 时填完整 URL
 //   status:      'available' 可进入 | 'coming' 开发中（置灰不可点）
 //   badge?:      卡片右上角角标文案
@@ -20,15 +19,12 @@
 //   external?:   是否外部链接
 // ============================================
 
-import jumpJumpPhoto from '@/assets/portal/jump-jump.jpg'
-
 export interface AppModule {
   id: string
   name: string
   description: string
   icon: string
   iconType?: 'emoji' | 'vant'
-  image?: string
   path: string
   status: 'available' | 'coming'
   badge?: string
@@ -42,7 +38,6 @@ export const APP_MODULES: AppModule[] = [
     name: '小厨点餐',
     description: '在线点餐、订单跟踪与积分签到',
     icon: '🍜',
-    image: jumpJumpPhoto,
     path: '/app',
     status: 'available',
     badge: '原有',
