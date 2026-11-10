@@ -39,7 +39,7 @@ export interface AppModule {
 export const APP_MODULES: AppModule[] = [
   {
     id: 'ordering',
-    name: 'jump jump',
+    name: '小厨点餐',
     description: '在线点餐、订单跟踪与积分签到',
     icon: '🍜',
     image: jumpJumpPhoto,

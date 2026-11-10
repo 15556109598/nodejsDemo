@@ -18,7 +18,7 @@ const routes: RouteRecordRaw[] = [
     path: '/app',
     name: 'home',
     component: () => import('@/views/home/Index.vue'),
-    meta: { tabbar: true, keepAlive: true, title: 'jump jump' },
+    meta: { tabbar: true, keepAlive: true, title: '小厨点餐' },
   },
   {
     path: '/snacks',
@@ -34,31 +34,31 @@ const routes: RouteRecordRaw[] = [
     path: '/order',
     name: 'order',
     component: () => import('@/views/order/List.vue'),
-    meta: { tabbar: true, title: 'jump jump' },
+    meta: { tabbar: true, title: '小厨点餐' },
   },
   {
     path: '/mine',
     name: 'mine',
     component: () => import('@/views/mine/Index.vue'),
-    meta: { tabbar: true, title: 'jump jump' },
+    meta: { tabbar: true, title: '小厨点餐' },
   },
   {
     path: '/login',
     name: 'login',
     component: () => import('@/views/login/Login.vue'),
-    meta: { title: 'jump jump' },
+    meta: { title: '小厨点餐' },
   },
   {
     path: '/order/:id',
     name: 'order-detail',
     component: () => import('@/views/order/Detail.vue'),
-    meta: { title: 'jump jump' },
+    meta: { title: '小厨点餐' },
   },
   {
     path: '/points',
     name: 'points',
     component: () => import('@/views/mine/PointsLog.vue'),
-    meta: { title: 'jump jump' },
+    meta: { title: '小厨点餐' },
   },
 ]
 

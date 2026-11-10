@@ -56,7 +56,7 @@ function onSubmit() {
       <div class="logo">
         <van-icon name="shop-o" size="34" color="#fff" />
       </div>
-      <div class="name">jump jump</div>
+      <div class="name">小厨点餐</div>
       <div class="slogan">新鲜现炒 · 堂食更香 · 积分享好礼</div>
     </div>
 
