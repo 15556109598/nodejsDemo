@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 打卡面板：每日打卡（双方各点一次 + 连续天数 + 日历小格）、一起做的事、小约定
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { showToast } from 'vant'
 import {
   CoupleApiError,
@@ -10,6 +10,9 @@ import {
   type CoupleTodo,
   type CoupleWish,
 } from '@/api/couple'
+import CheckinSheet from './CheckinSheet.vue'
+import CheckinDaySheet from './CheckinDaySheet.vue'
+import { moodLabel } from '../mood'
 
 const props = defineProps<{
   checkin: CheckinSummary
@@ -17,12 +20,41 @@ const props = defineProps<{
   wishes: CoupleWish[]
   profiles: CoupleProfile[]
   today: string
+  // 从首页弹幕点进来时，直接展开这条约定的回复框
+  focusWishId?: string
+}>()
+
+const emit = defineEmits<{
+  (event: 'wishes-changed', wishes: CoupleWish[]): void
 }>()
 
 const summary = ref<CheckinSummary>({ ...props.checkin })
 const todoList = ref<CoupleTodo[]>([...props.todos])
 const wishList = ref<CoupleWish[]>([...props.wishes])
-const checkinBusy = ref<Record<number, boolean>>({ 1: false, 2: false })
+
+// 打卡弹层与当天详情
+const checkinSlot = ref<1 | 2 | null>(null)
+const checkinShow = computed<boolean>({
+  get: () => checkinSlot.value !== null,
+  set: (value) => {
+    if (!value) checkinSlot.value = null
+  },
+})
+const dayDate = ref('')
+const dayShow = ref(false)
+
+function openCheckin(slot: 1 | 2): void {
+  checkinSlot.value = slot
+}
+
+function openDay(date: string): void {
+  dayDate.value = date
+  dayShow.value = true
+}
+
+function onCheckinSaved(next: CheckinSummary): void {
+  summary.value = { ...next }
+}
 
 watch(
   () => props.checkin,
@@ -55,7 +87,17 @@ function nameOf(slot: 1 | 2): string {
 }
 
 function slotState(slot: 1 | 2) {
-  return summary.value.slots.find((item) => item.slot === slot) || { slot, done: false, time: null }
+  return (
+    summary.value.slots.find((item) => item.slot === slot) || {
+      slot,
+      done: false,
+      time: null,
+      mood: '',
+      moodText: '',
+      note: '',
+      likes: [],
+    }
+  )
 }
 
 function timeOf(raw: string | null): string {
@@ -65,25 +107,18 @@ function timeOf(raw: string | null): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
+function checkinHint(slot: 1 | 2): string {
+  const state = slotState(slot)
+  if (!state.done) return '点我打卡'
+  const mood = moodLabel(state.mood)
+  return `${mood ? `${mood} · ` : ''}${timeOf(state.time)} 已打卡`
+}
+
 function shortDate(raw: string | null): string {
   if (!raw) return ''
   const date = new Date(raw)
   if (Number.isNaN(date.getTime())) return ''
   return `${date.getMonth() + 1} 月 ${date.getDate()} 日`
-}
-
-async function toggleCheckin(slot: 1 | 2): Promise<void> {
-  if (checkinBusy.value[slot]) return
-  const done = slotState(slot).done
-  checkinBusy.value[slot] = true
-  try {
-    summary.value = done ? await coupleApi.undoCheckin(slot) : await coupleApi.checkin(slot)
-    showToast(done ? '已撤销今天的打卡' : `${nameOf(slot)} 打卡成功`)
-  } catch (error) {
-    showToast(errorMessage(error))
-  } finally {
-    checkinBusy.value[slot] = false
-  }
 }
 
 const WEEK_LABELS = ['一', '二', '三', '四', '五', '六', '日']
@@ -189,6 +224,7 @@ async function addWish(): Promise<void> {
   try {
     const result = await coupleApi.addWish(content, wishFrom.value)
     wishList.value = [result.wish, ...wishList.value]
+    emit('wishes-changed', wishList.value)
     wishDraft.value = ''
     showToast('已发起，等 TA 回应')
   } catch (error) {
@@ -204,6 +240,7 @@ async function respondWish(item: CoupleWish, status: 'accepted' | 'declined'): P
   try {
     const result = await coupleApi.respondWish(item.id, status)
     wishList.value = wishList.value.map((row) => (row.id === item.id ? result.wish : row))
+    emit('wishes-changed', wishList.value)
     showToast(status === 'accepted' ? '已经答应啦' : '先记下来，再想想')
   } catch (error) {
     showToast(errorMessage(error))
@@ -218,6 +255,7 @@ async function removeWish(item: CoupleWish): Promise<void> {
   try {
     await coupleApi.removeWish(item.id)
     wishList.value = wishList.value.filter((row) => row.id !== item.id)
+    emit('wishes-changed', wishList.value)
     showToast('已删除')
   } catch (error) {
     showToast(errorMessage(error))
@@ -235,6 +273,66 @@ function wishStatusText(item: CoupleWish): string {
   }
   return '等回应'
 }
+
+// ---------- 小约定：文字回复 ----------
+const replyOpenId = ref('')
+const replyDraft = ref('')
+const replySlot = ref<1 | 2>(1)
+const replyBusy = ref(false)
+const replyError = ref('')
+
+function openReply(item: CoupleWish): void {
+  if (replyOpenId.value === item.id) {
+    replyOpenId.value = ''
+    return
+  }
+  replyOpenId.value = item.id
+  replyDraft.value = ''
+  replyError.value = ''
+  // 默认以「另一方」身份回复：发起的对侧更像那个要回应的人
+  replySlot.value = item.fromSlot === 1 ? 2 : 1
+}
+
+async function sendReply(item: CoupleWish): Promise<void> {
+  const content = replyDraft.value.trim()
+  replyError.value = ''
+  if (!content) {
+    replyError.value = '写点什么再发送吧'
+    return
+  }
+  if (replyBusy.value) return
+  replyBusy.value = true
+  try {
+    const result = await coupleApi.replyWish(item.id, replySlot.value, content)
+    wishList.value = wishList.value.map((row) => (row.id === item.id ? result.wish : row))
+    emit('wishes-changed', wishList.value)
+    replyDraft.value = ''
+    replyOpenId.value = ''
+    showToast('回复已送达')
+  } catch (error) {
+    replyError.value = errorMessage(error)
+  } finally {
+    replyBusy.value = false
+  }
+}
+
+// 从首页弹幕点进来：滚到这条约定并展开回复框
+watch(
+  () => props.focusWishId,
+  async (id) => {
+    if (!id) return
+    const item = wishList.value.find((row) => row.id === id)
+    if (!item) return
+    replyOpenId.value = id
+    replySlot.value = item.fromSlot === 1 ? 2 : 1
+    replyDraft.value = ''
+    await nextTick()
+    const field = document.getElementById(`wish-reply-${id}`)
+    field?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    field?.focus({ preventScroll: true })
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -266,9 +364,8 @@ function wishStatusText(item: CoupleWish): string {
           type="button"
           class="checkin-btn"
           :class="{ 'is-done': slotState(slot).done }"
-          :disabled="checkinBusy[slot]"
           :aria-pressed="slotState(slot).done"
-          @click="toggleCheckin(slot)"
+          @click="openCheckin(slot)"
         >
           <span class="checkin-avatar" aria-hidden="true">
             <img
@@ -284,9 +381,8 @@ function wishStatusText(item: CoupleWish): string {
           </span>
           <span class="checkin-text">
             <span class="checkin-name">{{ nameOf(slot) }}</span>
-            <span class="checkin-state">
-              {{ slotState(slot).done ? `已打卡 · ${timeOf(slotState(slot).time)}` : '点我打卡' }}
-            </span>
+            <span class="checkin-state">{{ checkinHint(slot) }}</span>
+            <span v-if="slotState(slot).note" class="checkin-note">{{ slotState(slot).note }}</span>
           </span>
         </button>
       </div>
@@ -296,21 +392,27 @@ function wishStatusText(item: CoupleWish): string {
           <span v-for="label in WEEK_LABELS" :key="label">{{ label }}</span>
         </div>
         <div class="calendar-grid">
-          <div
-            v-for="(cell, index) in calendarCells"
-            :key="cell ? cell.date : `blank-${index}`"
-            class="calendar-cell"
-            :class="cell ? `count-${cell.count}` : 'is-blank'"
-            :role="cell ? 'img' : undefined"
-            :aria-label="cell ? cellLabel(cell) : undefined"
-          >
-            <span v-if="cell">{{ Number(cell.date.slice(8)) }}</span>
-          </div>
+          <template v-for="(cell, index) in calendarCells" :key="cell ? cell.date : `blank-${index}`">
+            <span v-if="!cell" class="calendar-cell is-blank" aria-hidden="true" />
+            <button
+              v-else
+              type="button"
+              class="calendar-cell"
+              :class="`count-${cell.count}`"
+              :aria-label="cellLabel(cell)"
+              @click="openDay(cell.date)"
+            >
+              <span class="cell-num">{{ Number(cell.date.slice(8)) }}</span>
+              <span class="cell-marks" aria-hidden="true">
+                <i /><i />
+              </span>
+            </button>
+          </template>
         </div>
-        <div class="calendar-legend" aria-hidden="true">
-          <span><i class="dot dot-both" />两人都打卡</span>
-          <span><i class="dot dot-one" />一人打卡</span>
-          <span><i class="dot dot-none" />还没打卡</span>
+        <div class="calendar-legend">
+          <span><i class="legend-cell is-both" aria-hidden="true"><i /><i /></i>两人都打卡</span>
+          <span><i class="legend-cell is-one" aria-hidden="true"><i /><i /></i>只有一人</span>
+          <span><i class="legend-cell is-none" aria-hidden="true" />没人打卡</span>
         </div>
       </div>
     </section>
@@ -416,6 +518,61 @@ function wishStatusText(item: CoupleWish): string {
             </button>
           </div>
           <p class="wish-content">{{ item.content }}</p>
+
+          <ul v-if="item.replies.length" class="reply-list">
+            <li v-for="reply in item.replies" :key="reply.id" class="reply-item">
+              <span class="reply-author">{{ nameOf(reply.slot) }}</span>
+              <p class="reply-content">{{ reply.content }}</p>
+            </li>
+          </ul>
+
+          <button
+            type="button"
+            class="link-btn reply-toggle"
+            :aria-expanded="replyOpenId === item.id"
+            :aria-controls="`wish-reply-form-${item.id}`"
+            @click="openReply(item)"
+          >
+            {{ replyOpenId === item.id ? '收起回复' : item.replies.length ? '继续回复' : '写文字回复' }}
+          </button>
+
+          <form
+            v-if="replyOpenId === item.id"
+            :id="`wish-reply-form-${item.id}`"
+            class="reply-form"
+            @submit.prevent="sendReply(item)"
+          >
+            <div class="reply-from" role="group" aria-label="选择回复身份">
+              <button
+                v-for="slot in ([1, 2] as const)"
+                :key="slot"
+                type="button"
+                class="pick is-small"
+                :class="{ 'is-active': replySlot === slot }"
+                :aria-pressed="replySlot === slot"
+                @click="replySlot = slot"
+              >
+                {{ nameOf(slot) }}
+              </button>
+            </div>
+            <label class="sr-only" :for="`wish-reply-${item.id}`">回复内容</label>
+            <textarea
+              :id="`wish-reply-${item.id}`"
+              v-model="replyDraft"
+              class="input textarea"
+              rows="3"
+              maxlength="300"
+              :placeholder="`以${nameOf(replySlot)}的身份回复…`"
+            />
+            <div class="reply-foot">
+              <span class="reply-count">{{ Array.from(replyDraft).length }} / 300</span>
+              <button type="submit" class="btn btn-primary" :disabled="replyBusy || !replyDraft.trim()">
+                {{ replyBusy ? '发送中…' : '发送' }}
+              </button>
+            </div>
+            <p v-if="replyError" class="error-text" role="alert">{{ replyError }}</p>
+          </form>
+
           <div v-if="item.status === 'open'" class="wish-actions">
             <button type="button" class="btn btn-ghost" :disabled="wishBusyId === item.id" @click="respondWish(item, 'accepted')">
               好呀
@@ -460,6 +617,15 @@ function wishStatusText(item: CoupleWish): string {
       </form>
       <p v-if="wishError" id="wish-error" class="error-text" role="alert">{{ wishError }}</p>
     </section>
+
+    <CheckinSheet
+      v-model:show="checkinShow"
+      :slot="checkinSlot || 1"
+      :name="nameOf(checkinSlot || 1)"
+      :state="checkinSlot ? slotState(checkinSlot) : null"
+      @saved="onCheckinSaved"
+    />
+    <CheckinDaySheet v-model:show="dayShow" :day="dayDate" :profiles="profiles" />
   </div>
 </template>
 
@@ -613,14 +779,25 @@ function wishStatusText(item: CoupleWish): string {
   color: $ink-muted;
 }
 
+.checkin-note {
+  display: -webkit-box;
+  margin-top: 2PX;
+  overflow: hidden;
+  font-size: 12PX;
+  line-height: 1.4;
+  color: $ink-muted;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 .calendar {
-  margin-top: 14PX;
+  margin: 14PX -6PX 0;
 }
 
 .calendar-week {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4PX;
+  gap: 2PX;
   margin-bottom: 4PX;
 
   span {
@@ -634,74 +811,145 @@ function wishStatusText(item: CoupleWish): string {
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4PX;
+  gap: 2PX;
 }
 
+// 三种状态不只靠颜色：虚线空心 / 实线单点 / 实心双点+强调描边
 .calendar-cell {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  aspect-ratio: 1 / 1;
+  gap: 2PX;
+  min-height: 46PX;
+  padding: 0;
   font-size: 12PX;
   line-height: 1;
   color: $ink-muted;
-  background: $surface-sunken;
-  border: 1PX solid transparent;
-  border-radius: 6PX;
+  background: transparent;
+  border: 1PX dashed $line-strong;
+  border-radius: 8PX;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
 
   &.is-blank {
     background: transparent;
     border-color: transparent;
+    cursor: default;
+  }
+
+  &.count-0 {
+    color: $ink-muted;
+    background: $surface-sunken;
+    border: 1PX dashed $line-strong;
   }
 
   &.count-1 {
-    background: $line-soft;
     color: $ink-secondary;
+    background: $line-soft;
+    border: 1PX solid $ink-muted;
   }
 
   &.count-2 {
-    background: $accent-soft;
-    border-color: $accent-line;
     color: $ink;
     font-weight: 600;
+    background: $accent-soft;
+    border: 1PX solid $brand-action;
   }
+
+  &:hover:not(.is-blank) {
+    border-color: $ink-secondary;
+  }
+
+  &:focus-visible {
+    outline: 2PX solid $brand-action;
+    outline-offset: 2PX;
+  }
+}
+
+.cell-marks {
+  display: inline-flex;
+  gap: 2PX;
+  height: 5PX;
+
+  i {
+    display: block;
+    width: 5PX;
+    height: 5PX;
+    border-radius: 50%;
+    border: 1PX solid $line-strong;
+  }
+}
+
+.count-1 .cell-marks i:first-child {
+  background: $ink-secondary;
+  border-color: $ink-secondary;
+}
+
+.count-2 .cell-marks i {
+  background: $brand-action;
+  border-color: $brand-action;
+}
+
+.count-0 .cell-marks i {
+  border-style: dashed;
 }
 
 .calendar-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 8PX 12PX;
-  margin-top: 8PX;
+  margin-top: 10PX;
 
   span {
     display: inline-flex;
     align-items: center;
-    gap: 4PX;
+    gap: 5PX;
     font-size: 12PX;
     line-height: 1.5;
     color: $ink-muted;
   }
 }
 
-.dot {
-  width: 8PX;
-  height: 8PX;
-  border-radius: 2PX;
-  border: 1PX solid transparent;
-}
+.legend-cell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1PX;
+  width: 14PX;
+  height: 14PX;
+  border-radius: 4PX;
 
-.dot-both {
-  background: $accent-soft;
-  border-color: $accent-line;
-}
+  i {
+    display: block;
+    width: 3PX;
+    height: 3PX;
+    border-radius: 50%;
+  }
 
-.dot-one {
-  background: $line-soft;
-}
+  &.is-both {
+    background: $accent-soft;
+    border: 1PX solid $brand-action;
 
-.dot-none {
-  background: $surface-sunken;
+    i {
+      background: $brand-action;
+    }
+  }
+
+  &.is-one {
+    background: $line-soft;
+    border: 1PX solid $ink-muted;
+
+    i:first-child {
+      background: $ink-secondary;
+    }
+  }
+
+  &.is-none {
+    background: $surface-sunken;
+    border: 1PX dashed $line-strong;
+  }
 }
 
 .progress {
@@ -904,6 +1152,100 @@ function wishStatusText(item: CoupleWish): string {
   font-size: 12PX;
   line-height: 1.5;
   color: $ink-muted;
+}
+
+.reply-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6PX;
+  margin-top: 8PX;
+  padding: 8PX 10PX;
+  background: $surface;
+  border: 1PX solid $line-soft;
+  border-radius: 10PX;
+}
+
+.reply-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2PX;
+}
+
+.reply-author {
+  font-size: 12PX;
+  line-height: 1.5;
+  color: $ink-muted;
+}
+
+.reply-content {
+  font-size: 13PX;
+  line-height: 1.6;
+  color: $ink;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44PX;
+  padding: 0 2PX;
+  font-size: 13PX;
+  color: $brand-action;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2PX solid $brand-action;
+    outline-offset: 2PX;
+    border-radius: 6PX;
+  }
+}
+
+.reply-toggle {
+  margin-top: 4PX;
+}
+
+.reply-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8PX;
+  margin-top: 4PX;
+}
+
+.reply-from {
+  display: flex;
+  gap: 6PX;
+}
+
+.pick.is-small {
+  min-width: 44PX;
+  padding: 0 8PX;
+  font-size: 12PX;
+}
+
+.textarea {
+  flex: none;
+  width: 100%;
+  min-height: 84PX;
+  padding: 10PX 12PX;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.reply-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8PX;
+}
+
+.reply-count {
+  font-size: 12PX;
+  line-height: 1.5;
+  color: $ink-muted;
+  font-variant-numeric: tabular-nums;
 }
 
 .empty-line {

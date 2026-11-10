@@ -241,6 +241,20 @@ export interface CheckinRowView {
   day: string;
   slot: number;
   createdAt: string | null;
+  mood: string;
+  moodText: string;
+  note: string;
+  likes: number[];
+}
+
+function normalizeLikes(raw: any): number[] {
+  const list: any[] = Array.isArray(raw) ? raw : [];
+  const out: number[] = [];
+  for (const item of list) {
+    const n = Number(item);
+    if ((n === 1 || n === 2) && !out.includes(n)) out.push(n);
+  }
+  return out.sort();
 }
 
 function normalizeCheckinRows(raw: Record<string, unknown> | null): CheckinRowView[] {
@@ -251,6 +265,10 @@ function normalizeCheckinRows(raw: Record<string, unknown> | null): CheckinRowVi
       day: row.day,
       slot: Number(row.slot) === 2 ? 2 : 1,
       createdAt: typeof row.createdAt === 'string' ? row.createdAt : null,
+      mood: typeof row.mood === 'string' ? row.mood.slice(0, 12) : '',
+      moodText: typeof row.moodText === 'string' ? row.moodText.slice(0, 12) : '',
+      note: typeof row.note === 'string' ? row.note.slice(0, 120) : '',
+      likes: normalizeLikes(row.likes),
     }));
 }
 
@@ -259,12 +277,38 @@ export async function listCheckinsSince(sinceDay: string): Promise<CheckinRowVie
   return rows.filter((row) => row.day >= sinceDay).sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
 }
 
-// 幂等：同一天同一个人重复打卡不会写入第二条
-export function addCheckin(day: string, slot: 1 | 2): Promise<boolean> {
+export async function listCheckinDay(day: string): Promise<CheckinRowView[]> {
+  const rows = normalizeCheckinRows(await readValue(CHECKIN_KEY));
+  return rows.filter((row) => row.day === day).sort((a, b) => a.slot - b.slot);
+}
+
+export interface CheckinDetail {
+  mood?: string;
+  moodText?: string;
+  note?: string;
+}
+
+// 幂等：同一天同一个人重复打卡不会新增第二条；再次提交只更新心情/描述
+export function addCheckin(day: string, slot: 1 | 2, detail: CheckinDetail = {}): Promise<boolean> {
   return withKeyLock(CHECKIN_KEY, async () => {
     const rows = normalizeCheckinRows(await readValue(CHECKIN_KEY));
-    if (rows.some((row) => row.day === day && row.slot === slot)) return false;
-    rows.push({ day, slot, createdAt: new Date().toISOString() });
+    const existing = rows.find((row) => row.day === day && row.slot === slot);
+    if (existing) {
+      existing.mood = detail.mood ?? existing.mood;
+      existing.moodText = detail.moodText ?? existing.moodText;
+      existing.note = detail.note ?? existing.note;
+      await writeValue(CHECKIN_KEY, { rows });
+      return false;
+    }
+    rows.push({
+      day,
+      slot,
+      createdAt: new Date().toISOString(),
+      mood: detail.mood || '',
+      moodText: detail.moodText || '',
+      note: detail.note || '',
+      likes: [],
+    });
     // 只保留最近 CHECKIN_KEEP_DAYS 天，避免 settings 里的 JSON 无限增长
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - CHECKIN_KEEP_DAYS);
@@ -282,6 +326,24 @@ export function removeCheckin(day: string, slot: 1 | 2): Promise<boolean> {
     if (next.length === rows.length) return false;
     await writeValue(CHECKIN_KEY, { rows: next });
     return true;
+  });
+}
+
+// 给某天某人的打卡点赞/取消赞：同一位置只记一次，可重复点击切换
+export function toggleCheckinLike(
+  day: string,
+  targetSlot: 1 | 2,
+  fromSlot: 1 | 2
+): Promise<CheckinRowView | null> {
+  return withKeyLock(CHECKIN_KEY, async () => {
+    const rows = normalizeCheckinRows(await readValue(CHECKIN_KEY));
+    const target = rows.find((row) => row.day === day && row.slot === targetSlot);
+    if (!target) return null;
+    target.likes = target.likes.includes(fromSlot)
+      ? target.likes.filter((n) => n !== fromSlot)
+      : [...target.likes, fromSlot].sort();
+    await writeValue(CHECKIN_KEY, { rows });
+    return target;
   });
 }
 
@@ -355,6 +417,13 @@ export function removeTodo(id: string): Promise<boolean> {
 
 export type WishStatus = 'open' | 'accepted' | 'declined';
 
+export interface WishReply {
+  id: string;
+  slot: 1 | 2;
+  content: string;
+  createdAt: string;
+}
+
 export interface CoupleWish {
   id: string;
   content: string;
@@ -363,6 +432,23 @@ export interface CoupleWish {
   respondedSlot: 1 | 2 | null;
   respondedAt: string | null;
   createdAt: string;
+  // 具体文字回复（多行），双方都可以写
+  replies: WishReply[];
+}
+
+export const MAX_WISH_REPLY = 300;
+
+function normalizeReplies(raw: any): WishReply[] {
+  const list: any[] = Array.isArray(raw) ? raw : [];
+  const replies: WishReply[] = list
+    .filter((row: any) => row && typeof row.id === 'string' && typeof row.content === 'string')
+    .map((row: any) => ({
+      id: row.id,
+      slot: (Number(row.slot) === 2 ? 2 : 1) as 1 | 2,
+      content: row.content.slice(0, MAX_WISH_REPLY),
+      createdAt: typeof row.createdAt === 'string' ? row.createdAt : '',
+    }));
+  return replies.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 }
 
 function normalizeWishes(raw: Record<string, unknown> | null): CoupleWish[] {
@@ -377,6 +463,7 @@ function normalizeWishes(raw: Record<string, unknown> | null): CoupleWish[] {
       respondedSlot: row.respondedSlot === 2 ? 2 : row.respondedSlot === 1 ? 1 : null,
       respondedAt: typeof row.respondedAt === 'string' && row.respondedAt ? row.respondedAt : null,
       createdAt: typeof row.createdAt === 'string' ? row.createdAt : '',
+      replies: normalizeReplies(row.replies),
     }));
   return wishes.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
@@ -396,8 +483,22 @@ export function createWish(content: string, fromSlot: 1 | 2): Promise<CoupleWish
       respondedSlot: null,
       respondedAt: null,
       createdAt: new Date().toISOString(),
+      replies: [],
     };
     wishes.unshift(wish);
+    await writeValue(WISH_KEY, { wishes });
+    return wish;
+  });
+}
+
+// 文字回复：双方都可以写，已回应/未回应都允许，用于把话说清楚
+export function addWishReply(id: string, slot: 1 | 2, content: string): Promise<CoupleWish | null> {
+  return withKeyLock(WISH_KEY, async () => {
+    const wishes = normalizeWishes(await readValue(WISH_KEY));
+    const wish = wishes.find((item) => item.id === id);
+    if (!wish) return null;
+    if (wish.replies.some((reply) => reply.slot === slot && reply.content === content)) return wish;
+    wish.replies.push({ id: randomUUID(), slot, content, createdAt: new Date().toISOString() });
     await writeValue(WISH_KEY, { wishes });
     return wish;
   });

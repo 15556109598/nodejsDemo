@@ -14,6 +14,7 @@ import {
   type CoupleSession,
 } from '@/api/couple'
 import CoupleHeader from './components/CoupleHeader.vue'
+import DanmakuStrip from './components/DanmakuStrip.vue'
 import TodayPanel from './components/TodayPanel.vue'
 import AnniversaryPanel from './components/AnniversaryPanel.vue'
 import CyclePanel from './components/CyclePanel.vue'
@@ -47,6 +48,8 @@ const passcodeSet = ref(true)
 const locked = ref(false)
 const tab = ref<TabKey>('today')
 const settingsOpen = ref(false)
+// 弹幕点选后要展开回复的约定 id
+const focusWishId = ref('')
 
 const passcode = ref('')
 const unlocking = ref(false)
@@ -249,6 +252,20 @@ function goTab(key: TabKey): void {
   tab.value = key
 }
 
+// 弹幕点选：切到打卡页并定位到那条约定；先清空再赋值，保证连续点同一条也能触发
+function onDanmakuSelect(id: string): void {
+  focusWishId.value = ''
+  tab.value = 'daily'
+  nextTick(() => {
+    focusWishId.value = id
+  })
+}
+
+function onWishesChanged(wishes: CoupleOverview['wishes']): void {
+  if (!overview.value) return
+  overview.value = { ...overview.value, wishes }
+}
+
 // 手机桌面图标：把页面 manifest 指向 /couple 专用 manifest（含设备令牌），
 // 避免系统按全局 manifest 的 start_url="/" 把图标指向入口页，丢失 ?device= 凭证。
 function manifestLink(): HTMLLinkElement | null {
@@ -364,6 +381,12 @@ onUnmounted(() => {
           @updated="onProfileUpdated"
         />
 
+        <DanmakuStrip
+          :wishes="overview.wishes"
+          :profiles="overview.profiles"
+          @select="onDanmakuSelect"
+        />
+
         <SettingsPanel
           v-show="settingsOpen"
           id="couple-settings"
@@ -457,6 +480,8 @@ onUnmounted(() => {
             :wishes="overview.wishes"
             :profiles="overview.profiles"
             :today="overview.today"
+            :focus-wish-id="focusWishId"
+            @wishes-changed="onWishesChanged"
           />
         </section>
 

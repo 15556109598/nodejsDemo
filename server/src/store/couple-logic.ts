@@ -407,6 +407,22 @@ export interface CheckinRow {
   day: string;
   slot: number;
   createdAt?: string | null;
+  // 心情预设键（happy/calm/tired/down/excited/busy）
+  mood?: string;
+  // 心情补充文字（可选，≤12 字）
+  moodText?: string;
+  // 简短描述（可选，≤120 字，允许换行）
+  note?: string;
+  // 给这条打卡点过赞的位置（1/2），同一位置只记一次
+  likes?: number[];
+}
+
+// 打卡心情预设：键值保持稳定，展示文案在前端映射
+export const CHECKIN_MOODS = ['happy', 'calm', 'tired', 'down', 'excited', 'busy'] as const;
+export type CheckinMood = (typeof CHECKIN_MOODS)[number];
+
+export function isCheckinMood(value: unknown): value is CheckinMood {
+  return typeof value === 'string' && (CHECKIN_MOODS as readonly string[]).includes(value);
 }
 
 export interface CheckinSlotState {
@@ -414,6 +430,10 @@ export interface CheckinSlotState {
   done: boolean;
   // 今天的打卡时间（ISO 字符串，由前端按本地时区展示）；未打卡为 null
   time: string | null;
+  mood: string;
+  moodText: string;
+  note: string;
+  likes: number[];
 }
 
 export interface CheckinDay {
@@ -498,7 +518,15 @@ export function computeCheckinSummary(
     const row = rows.find(
       (item) => String(item.day).slice(0, 10) === today && Number(item.slot) === slot
     );
-    return { slot, done: Boolean(row), time: row?.createdAt || null };
+    return {
+      slot,
+      done: Boolean(row),
+      time: row?.createdAt || null,
+      mood: row?.mood || '',
+      moodText: row?.moodText || '',
+      note: row?.note || '',
+      likes: (row?.likes || []).filter((n) => n === 1 || n === 2),
+    };
   });
 
   return { today, slots, currentStreak, bestStreak, days };

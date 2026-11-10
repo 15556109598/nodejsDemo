@@ -283,6 +283,26 @@ export interface CheckinSlotState {
   slot: 1 | 2
   done: boolean
   time: string | null
+  mood: string
+  moodText: string
+  note: string
+  likes: number[]
+}
+
+export interface CheckinDayEntry {
+  slot: 1 | 2
+  done: boolean
+  time: string | null
+  mood: string
+  moodText: string
+  note: string
+  likes: number[]
+}
+
+export interface CheckinDayDetail {
+  day: string
+  entries: CheckinDayEntry[]
+  count: number
 }
 
 export interface CheckinDay {
@@ -308,6 +328,13 @@ export interface CoupleTodo {
 
 export type WishStatus = 'open' | 'accepted' | 'declined'
 
+export interface WishReply {
+  id: string
+  slot: 1 | 2
+  content: string
+  createdAt: string
+}
+
 export interface CoupleWish {
   id: string
   content: string
@@ -316,6 +343,7 @@ export interface CoupleWish {
   respondedSlot: 1 | 2 | null
   respondedAt: string | null
   createdAt: string
+  replies: WishReply[]
 }
 
 export interface CoupleQuotePool {
@@ -420,8 +448,18 @@ export const coupleApi = {
   removeAvatar(slot: 1 | 2) {
     return http<{ profile: CoupleProfile }>({ url: `/couple/profiles/${slot}/avatar`, method: 'DELETE' })
   },
-  checkin(slot: 1 | 2) {
-    return http<CheckinSummary>({ url: '/couple/checkins', method: 'POST', data: { slot } })
+  checkin(slot: 1 | 2, detail: { mood?: string; moodText?: string; note?: string } = {}) {
+    return http<CheckinSummary>({ url: '/couple/checkins', method: 'POST', data: { slot, ...detail } })
+  },
+  checkinDay(day: string) {
+    return http<CheckinDayDetail>({ url: `/couple/checkins/day/${day}`, method: 'GET' })
+  },
+  toggleCheckinLike(day: string, targetSlot: 1 | 2, fromSlot: 1 | 2) {
+    return http<{ day: string; entry: CheckinDayEntry }>({
+      url: `/couple/checkins/${day}/${targetSlot}/like`,
+      method: 'POST',
+      data: { fromSlot },
+    })
   },
   undoCheckin(slot: 1 | 2) {
     return http<CheckinSummary>({ url: `/couple/checkins/today/${slot}`, method: 'DELETE' })
@@ -440,6 +478,13 @@ export const coupleApi = {
   },
   respondWish(id: string, status: 'accepted' | 'declined') {
     return http<{ wish: CoupleWish }>({ url: `/couple/wishes/${id}/respond`, method: 'POST', data: { status } })
+  },
+  replyWish(id: string, slot: 1 | 2, content: string) {
+    return http<{ wish: CoupleWish }>({
+      url: `/couple/wishes/${id}/replies`,
+      method: 'POST',
+      data: { slot, content },
+    })
   },
   removeWish(id: string) {
     return http<{ removed: boolean }>({ url: `/couple/wishes/${id}`, method: 'DELETE' })

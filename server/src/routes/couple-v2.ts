@@ -6,15 +6,19 @@ import {
   BUILTIN_QUOTES,
   addDays,
   computeCheckinSummary,
+  isCheckinMood,
   pickRandomQuote,
   resolveDailyQuote,
   todayInShanghai,
   type QuoteOverride,
 } from '../store/couple-logic';
 import {
+  MAX_WISH_REPLY,
   addCheckin,
+  addWishReply,
   createTodo,
   createWish,
+  listCheckinDay,
   listCheckinsSince,
   listProfiles,
   listTodos,
@@ -27,6 +31,7 @@ import {
   saveAvatarObject,
   setProfileAvatar,
   setTodoDone,
+  toggleCheckinLike,
   updateProfile,
 } from '../store/couple-extra';
 import {
@@ -49,6 +54,15 @@ function wrap(handler: (req: Request, res: Response) => Promise<void>) {
 
 function text(value: unknown, max: number): string {
   return String(value ?? '').trim().slice(0, max);
+}
+
+// 允许换行的长文本：按字符截断，避免把 emoji 截成半个代理对
+function longText(value: unknown, max: number): string {
+  return Array.from(String(value ?? '').trim()).slice(0, max).join('');
+}
+
+function isDay(value: unknown): value is string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''));
 }
 
 function slotOf(value: unknown): 1 | 2 | null {
@@ -164,9 +178,72 @@ router.post(
       fail(res, 400, 'slot 必须为 1 或 2');
       return;
     }
+    const body = req.body || {};
+    // 心情可空（不选也能打卡）；传了就必须是预设键
+    if (body.mood !== undefined && body.mood !== '' && !isCheckinMood(body.mood)) {
+      fail(res, 400, '心情参数不合法');
+      return;
+    }
+    const mood = isCheckinMood(body.mood) ? body.mood : '';
+    const moodText = longText(body.moodText, 12);
+    const note = longText(body.note, 120);
     const today = todayInShanghai();
-    await addCheckin(today, slot);
+    await addCheckin(today, slot, { mood, moodText, note });
     ok(res, await checkinSummary());
+  })
+);
+
+// 某一天的双方详情：只有一方打卡时，另一方返回 done=false 的空记录
+router.get(
+  '/checkins/day/:day',
+  wrap(async (req, res) => {
+    const day = String(req.params.day);
+    if (!isDay(day)) {
+      fail(res, 400, '日期格式应为 YYYY-MM-DD');
+      return;
+    }
+    if (day > todayInShanghai()) {
+      fail(res, 400, '还不能查看未来的打卡');
+      return;
+    }
+    const rows = await listCheckinDay(day);
+    const entries = ([1, 2] as const).map((slot) => {
+      const row = rows.find((item) => item.slot === slot);
+      return {
+        slot,
+        done: Boolean(row),
+        time: row?.createdAt || null,
+        mood: row?.mood || '',
+        moodText: row?.moodText || '',
+        note: row?.note || '',
+        likes: row?.likes || [],
+      };
+    });
+    ok(res, { day, entries, count: entries.filter((item) => item.done).length });
+  })
+);
+
+// 点赞 / 取消赞：同一位置同一天只记一次
+router.post(
+  '/checkins/:day/:slot/like',
+  wrap(async (req, res) => {
+    const day = String(req.params.day);
+    const target = slotOf(req.params.slot);
+    const from = slotOf(req.body?.fromSlot);
+    if (!isDay(day) || !target || !from) {
+      fail(res, 400, '参数不合法');
+      return;
+    }
+    if (day > todayInShanghai()) {
+      fail(res, 400, '还不能给未来的打卡点赞');
+      return;
+    }
+    const row = await toggleCheckinLike(day, target, from);
+    if (!row) {
+      fail(res, 404, '这条打卡不存在');
+      return;
+    }
+    ok(res, { day, entry: { ...row, done: true } });
   })
 );
 
@@ -286,6 +363,33 @@ router.post(
       return;
     }
     ok(res, { wish });
+  })
+);
+
+// 具体文字回复：多行，双方都能写；已回应/未回应都允许
+router.post(
+  '/wishes/:id/replies',
+  wrap(async (req, res) => {
+    if (!isUuid(String(req.params.id))) {
+      fail(res, 400, '参数不合法');
+      return;
+    }
+    const slot = slotOf(req.body?.slot);
+    const content = longText(req.body?.content, MAX_WISH_REPLY);
+    if (!slot) {
+      fail(res, 400, 'slot 必须为 1 或 2');
+      return;
+    }
+    if (!content) {
+      fail(res, 400, '写点什么再回复吧');
+      return;
+    }
+    const wish = await addWishReply(String(req.params.id), slot, content);
+    if (!wish) {
+      fail(res, 404, '这个约定不存在');
+      return;
+    }
+    res.status(201).json({ code: 0, data: { wish } });
   })
 );
 
